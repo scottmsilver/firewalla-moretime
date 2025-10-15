@@ -21,7 +21,8 @@ dotenv.config();
 
 const app = express();
 app.use(express.json());
-app.use(express.static(join(__dirname, 'public')));
+// Serve React build in production, or proxy to dev server in development
+app.use(express.static(join(__dirname, 'client', 'build')));
 
 const WEB_PORT = process.env.WEB_PORT || 3003;
 const BRIDGE_URL = process.env.BRIDGE_URL || 'http://localhost:3002';
@@ -279,9 +280,9 @@ app.post('/api/test-email', async (req, res) => {
     }
 });
 
-// Serve main page
+// Serve main page - serves React app from build directory
 app.get('/', (req, res) => {
-    res.sendFile(join(__dirname, 'public', 'index.html'));
+    res.sendFile(join(__dirname, 'client', 'build', 'index.html'));
 });
 
 // Start server
