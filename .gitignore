@@ -1,0 +1,58 @@
+# Environment variables
+.env
+
+# Private keys and secrets
+*.pem
+*.key
+etp.public.pem
+etp.private.pem
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+ENV/
+env/
+*.egg-info/
+dist/
+build/
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+
+# Logs
+*.log
+time_extensions.log
+
+# OS files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Screenshots and test data
+*.png
+*.jpg
+*.jpeg
+Screenshot_*
+
+# Temporary documentation
+STATUS.md
+FINAL_STATUS.md
