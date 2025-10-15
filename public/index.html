@@ -1,0 +1,582 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Firewalla Time Manager</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: #f8f9fa;
+            min-height: 100vh;
+            padding: 20px;
+            color: #2c3e50;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        header {
+            background: white;
+            padding: 16px 20px;
+            border-radius: 6px;
+            border: 1px solid #e1e4e8;
+            margin-bottom: 8px;
+        }
+
+        .header-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+        }
+
+        h1 {
+            color: #2c3e50;
+            font-size: 1.25em;
+            margin: 0;
+            font-weight: 600;
+        }
+
+        .subtitle {
+            color: #6c757d;
+            font-size: 0.8125em;
+            margin: 0;
+        }
+
+        .last-updated-text {
+            color: #999;
+            font-size: 0.75em;
+            margin-top: 6px;
+        }
+
+        .tabs {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 16px;
+        }
+
+        .tab-button {
+            padding: 6px 12px;
+            background: white;
+            border: 1px solid #e1e4e8;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.8125em;
+            transition: all 0.2s;
+            color: #6c757d;
+        }
+
+        .tab-button:hover {
+            border-color: #95a5a6;
+            color: #2c3e50;
+        }
+
+        .tab-button.active {
+            background: #2c3e50;
+            color: white;
+            border-color: #2c3e50;
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        .policy-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+            gap: 20px;
+        }
+
+        .policy-card {
+            background: white;
+            padding: 16px;
+            border-radius: 6px;
+            border: 1px solid #e1e4e8;
+            transition: border-color 0.2s;
+        }
+
+        .policy-card:hover {
+            border-color: #95a5a6;
+        }
+
+        .user-name {
+            font-size: 1em;
+            font-weight: 600;
+            color: #2c3e50;
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .status-badge {
+            font-size: 0.6875em;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+        }
+
+        .status-active {
+            background: #fee;
+            color: #c0392b;
+        }
+
+        .status-disabled {
+            background: #e8f5e9;
+            color: #27ae60;
+        }
+
+        .policy-info {
+            color: #6c757d;
+            margin-bottom: 6px;
+            font-size: 0.875em;
+            line-height: 1.5;
+        }
+
+        .pause-controls {
+            display: flex;
+            gap: 8px;
+            margin-top: 16px;
+        }
+
+        .time-button {
+            flex: 1;
+            padding: 8px 12px;
+            border: 1px solid #e1e4e8;
+            background: white;
+            color: #2c3e50;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.8125em;
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+
+        .time-button:hover {
+            background: #f8f9fa;
+            border-color: #95a5a6;
+        }
+
+        .time-button:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+
+        .unpause-button {
+            width: 100%;
+            padding: 8px 12px;
+            border: 1px solid #27ae60;
+            background: white;
+            color: #27ae60;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.8125em;
+            font-weight: 500;
+            transition: all 0.2s;
+            margin-top: 12px;
+        }
+
+        .unpause-button:hover {
+            background: #27ae60;
+            color: white;
+        }
+
+        .last-updated {
+            color: #999;
+            font-size: 0.85em;
+            margin-top: 10px;
+            font-style: italic;
+        }
+
+        .policies-count {
+            color: #6c757d;
+            font-size: 0.8125em;
+            margin-bottom: 16px;
+        }
+
+        .history-list {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        .history-item {
+            padding: 15px;
+            border-bottom: 1px solid #eee;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .history-item:last-child {
+            border-bottom: none;
+        }
+
+        .history-time {
+            color: #666;
+            font-size: 0.9em;
+        }
+
+        .history-details {
+            flex: 1;
+            margin: 0 20px;
+        }
+
+        .history-user {
+            font-weight: bold;
+            color: #333;
+        }
+
+        .history-duration {
+            color: #667eea;
+            font-weight: bold;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: white;
+            font-size: 1.2em;
+        }
+
+        .error {
+            background: #ef4444;
+            color: white;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+
+        .success {
+            background: #22c55e;
+            color: white;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            animation: slideIn 0.3s;
+        }
+
+        @keyframes slideIn {
+            from {
+                transform: translateY(-20px);
+                opacity: 0;
+            }
+            to {
+                transform: translateY(0);
+                opacity: 1;
+            }
+        }
+
+        .no-data {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+            background: white;
+            border-radius: 10px;
+        }
+
+        @media (max-width: 768px) {
+            .policy-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .tabs {
+                flex-direction: column;
+            }
+
+            .history-item {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 10px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="header-row">
+                <h1>Time Manager</h1>
+                <p class="subtitle">Internet access policies</p>
+            </div>
+            <div id="last-updated" class="last-updated-text"></div>
+        </header>
+
+        <div class="tabs">
+            <button class="tab-button active" onclick="showTab('policies')">Policies</button>
+            <button class="tab-button" onclick="showTab('history')">History</button>
+        </div>
+
+        <div id="message"></div>
+
+        <div id="policies-tab" class="tab-content active">
+            <div id="policies-container" class="loading">Loading policies...</div>
+        </div>
+
+        <div id="history-tab" class="tab-content">
+            <div id="history-container" class="loading">Loading history...</div>
+        </div>
+    </div>
+
+    <script>
+        let policies = [];
+        let history = [];
+        let lastUpdateTime = null;
+
+        async function fetchPolicies() {
+            try {
+                const response = await fetch('/api/policies');
+                const data = await response.json();
+                policies = data.policies;
+                lastUpdateTime = new Date();
+                renderPolicies();
+            } catch (error) {
+                document.getElementById('policies-container').innerHTML =
+                    `<div class="error">Failed to load policies: ${error.message}</div>`;
+            }
+        }
+
+        async function fetchHistory() {
+            try {
+                const response = await fetch('/api/history');
+                const data = await response.json();
+                history = data.history;
+                renderHistory();
+            } catch (error) {
+                document.getElementById('history-container').innerHTML =
+                    `<div class="error">Failed to load history: ${error.message}</div>`;
+            }
+        }
+
+        function renderPolicies() {
+            const container = document.getElementById('policies-container');
+
+            if (policies.length === 0) {
+                container.innerHTML = '<div class="no-data">No time-based policies found</div>';
+                return;
+            }
+
+            const html = policies.map(policy => {
+                const user = policy.users.length > 0 ? policy.users[0].name : 'Unknown';
+                const status = policy.disabled ? 'PAUSED' : 'BLOCKING';
+                const statusClass = policy.disabled ? 'status-disabled' : 'status-active';
+                const schedule = formatSchedule(policy.cronTime, policy.duration);
+
+                // Calculate expiration time if paused
+                let expiresIn = '';
+                if (policy.disabled && policy.activatedTime && policy.expire) {
+                    const expiresAt = (policy.activatedTime + policy.expire) * 1000;
+                    const now = Date.now();
+                    const minutesLeft = Math.ceil((expiresAt - now) / 60000);
+                    const expiresDate = new Date(expiresAt);
+                    const expiresTimeStr = expiresDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+
+                    if (minutesLeft > 0) {
+                        expiresIn = `
+                            <div class="policy-info" style="color: #95a5a6;">Re-enables in ${minutesLeft} min</div>
+                            <div class="policy-info" style="color: #27ae60; font-weight: 500;">Resumes at ${expiresTimeStr}</div>
+                        `;
+                    }
+                }
+
+                // Pause buttons or unpause button
+                const controlButtons = policy.disabled ? `
+                    <button class="unpause-button" onclick="unpausePolicy('${policy.pid}')">
+                        Resume Now
+                    </button>
+                ` : `
+                    <div class="pause-controls">
+                        <button class="time-button" onclick="pausePolicy('${policy.pid}', 15)">
+                            15 min
+                        </button>
+                        <button class="time-button" onclick="pausePolicy('${policy.pid}', 30)">
+                            30 min
+                        </button>
+                        <button class="time-button" onclick="pausePolicy('${policy.pid}', 60)">
+                            1 hour
+                        </button>
+                    </div>
+                `;
+
+                return `
+                    <div class="policy-card">
+                        <div class="user-name">
+                            ${user}
+                            <span class="status-badge ${statusClass}">${status}</span>
+                        </div>
+                        <div class="policy-info">${schedule}</div>
+                        ${expiresIn}
+                        ${controlButtons}
+                    </div>
+                `;
+            }).join('');
+
+            // Update last updated time in header
+            const updateTimeStr = lastUpdateTime ? lastUpdateTime.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : 'Never';
+            document.getElementById('last-updated').textContent = `Last updated: ${updateTimeStr} • ${policies.length} ${policies.length === 1 ? 'policy' : 'policies'}`;
+
+            container.innerHTML = `<div class="policy-grid">${html}</div>`;
+        }
+
+        function renderHistory() {
+            const container = document.getElementById('history-container');
+
+            if (history.length === 0) {
+                container.innerHTML = '<div class="no-data">No history yet</div>';
+                return;
+            }
+
+            const html = history.map(entry => {
+                const date = new Date(entry.timestamp);
+                const timeStr = date.toLocaleString('en-US', {
+                    month: 'short',
+                    day: 'numeric',
+                    hour: 'numeric',
+                    minute: '2-digit'
+                });
+                const tags = entry.tags ? entry.tags.join(', ') : 'Unknown';
+                const reason = entry.reason ? `<div style="color: #667eea; font-style: italic; margin-top: 5px;">Reason: ${entry.reason}</div>` : '';
+
+                return `
+                    <div class="history-item">
+                        <div class="history-time">${timeStr}</div>
+                        <div class="history-details">
+                            <div class="history-user">Policy ${entry.policy_id} (${tags})</div>
+                            <div>Paused for <span class="history-duration">${entry.duration_minutes} minutes</span></div>
+                            ${reason}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            container.innerHTML = `<div class="history-list">${html}</div>`;
+        }
+
+        async function pausePolicy(pid, minutes) {
+            try {
+                // Prompt for reason
+                const reason = prompt('Please enter the reason for this pause:');
+
+                // Cancel if no reason provided
+                if (!reason || reason.trim() === '') {
+                    showMessage('⚠️ Pause cancelled - reason is required', 'error');
+                    return;
+                }
+
+                showMessage('Pausing policy...', 'info');
+
+                const response = await fetch(`/api/policies/${pid}/pause`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ minutes, reason: reason.trim() })
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || 'Failed to pause policy');
+                }
+
+                const result = await response.json();
+                const expiresAt = new Date(result.expiresAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+
+                showMessage(`✅ Policy paused for ${minutes} minutes! Will re-enable at ${expiresAt}`, 'success');
+
+                // Refresh data
+                await fetchPolicies();
+                await fetchHistory();
+            } catch (error) {
+                showMessage(`❌ Error: ${error.message}`, 'error');
+            }
+        }
+
+        async function unpausePolicy(pid) {
+            try {
+                showMessage('Re-enabling policy...', 'info');
+
+                const response = await fetch(`/api/policies/${pid}/enable`, {
+                    method: 'POST'
+                });
+
+                if (!response.ok) {
+                    throw new Error('Failed to enable policy');
+                }
+
+                showMessage(`✅ Policy re-enabled! Blocking is now active.`, 'success');
+
+                // Refresh data
+                await fetchPolicies();
+            } catch (error) {
+                showMessage(`❌ Error: ${error.message}`, 'error');
+            }
+        }
+
+        function showMessage(text, type) {
+            const messageDiv = document.getElementById('message');
+            messageDiv.innerHTML = `<div class="${type}">${text}</div>`;
+
+            if (type === 'success' || type === 'info') {
+                setTimeout(() => {
+                    messageDiv.innerHTML = '';
+                }, 5000);
+            }
+        }
+
+        function showTab(tab) {
+            // Update buttons
+            document.querySelectorAll('.tab-button').forEach(btn => btn.classList.remove('active'));
+            event.target.classList.add('active');
+
+            // Update content
+            document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+            document.getElementById(`${tab}-tab`).classList.add('active');
+
+            // Load data if needed
+            if (tab === 'history') {
+                fetchHistory();
+            }
+        }
+
+        function formatSchedule(cronTime, duration) {
+            if (!cronTime) return 'No schedule';
+
+            const parts = cronTime.split(' ');
+            if (parts.length < 2) return cronTime;
+
+            const minute = parts[0];
+            const hour = parts[1];
+            const time = `${hour.padStart(2, '0')}:${minute.padStart(2, '0')}`;
+
+            const hours = Math.floor(duration / 3600);
+            const mins = Math.floor((duration % 3600) / 60);
+            const durationStr = hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
+
+            return `Blocks at ${time} for ${durationStr}`;
+        }
+
+        // Initial load
+        fetchPolicies();
+
+        // Auto-refresh every minute
+        setInterval(() => {
+            if (document.getElementById('policies-tab').classList.contains('active')) {
+                fetchPolicies();
+            }
+        }, 60000);
+    </script>
+</body>
+</html>

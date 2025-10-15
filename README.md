@@ -1,9 +1,11 @@
 # Firewalla Time Manager
 
-A command-line tool to manage internet access time for your kids on Firewalla devices. Allows you to temporarily grant additional internet time when kids are blocked by time-based policies.
+A tool to manage internet access time for your kids on Firewalla devices. Provides both a web interface and command-line tool to temporarily grant additional internet time when kids are blocked by time-based policies.
 
 ## Features
 
+- ✅ **Web UI** for easy policy management with one-click pause buttons
+- ✅ **Email notifications** when policies are paused (via Gmail OAuth2)
 - ✅ List all time-based blocking policies with user information
 - ✅ Pause policies with automatic re-enabling (set and forget!)
 - ✅ Manual grant/revoke internet access
@@ -15,6 +17,13 @@ A command-line tool to manage internet access time for your kids on Firewalla de
 
 ```
 ┌─────────────────┐
+│    Web UI       │  Browser interface with pause buttons
+│  (port 3003)    │  Shows policies, history, sends emails
+└────────┬────────┘
+         │
+         │ HTTP
+         │
+┌────────┴────────┐
 │  Python CLI     │  User-friendly command-line interface
 │ firewalla_cli.py│
 └────────┬────────┘
@@ -100,7 +109,71 @@ Firewalla Bridge API running on http://localhost:3002
 nohup node firewalla_bridge.js > bridge.log 2>&1 &
 ```
 
+### 5. Web UI Setup (Optional)
+
+The web UI provides an easy-to-use interface for managing policies with one-click pause buttons and email notifications.
+
+**Start the Web Server**
+```bash
+node web_server.js
+```
+
+You should see:
+```
+🌐 Firewalla Time Manager Web UI
+   Running on http://localhost:3003
+
+📡 Bridge API: http://localhost:3002
+✉️  Email notifications: Disabled
+```
+
+**Access the Web Interface**
+
+Open your browser to http://localhost:3003
+
+Features:
+- View all time-based policies with user names
+- One-click pause buttons (15 min, 30 min, 1 hour)
+- View pause history
+- Auto-refresh every minute with last update timestamp
+- Shows exact auto-unpause time for paused policies
+- Email notifications (optional, see below)
+
+**Enable Email Notifications (Optional)**
+
+To receive email notifications when policies are paused:
+
+1. Follow the [Gmail OAuth2 Setup Guide](GMAIL_SETUP.md)
+2. Add credentials to your `.env` file:
+   ```env
+   GMAIL_USER=your-email@gmail.com
+   GMAIL_CLIENT_ID=123456789.apps.googleusercontent.com
+   GMAIL_CLIENT_SECRET=GOCSPX-abc123...
+   GMAIL_REFRESH_TOKEN=1//abc123...
+   NOTIFY_EMAIL=parent@example.com
+   ```
+3. Restart the web server
+
+**Run Web Server in Background**
+```bash
+nohup node web_server.js > web_server.log 2>&1 &
+```
+
 ## Usage
+
+### Web UI Usage
+
+1. Open http://localhost:3003 in your browser
+2. You'll see cards for each time-based policy showing:
+   - User name (e.g., "Jules")
+   - Current status (BLOCKING or PAUSED)
+   - Schedule information
+   - Pause buttons (15 min, 30 min, 1 hour)
+3. Click a pause button to grant internet access
+4. The policy will automatically re-enable after the time expires
+5. Switch to the "History" tab to view all pauses
+
+### Command Line Usage
 
 ### List All Policies (with user info)
 
@@ -245,14 +318,21 @@ Look for `[ACTIVE]` vs `[DISABLED]` status.
 ```
 /home/ssilver/development/fw/
 ├── firewalla_bridge.js       # Bridge server (Node.js)
+├── web_server.js             # Web UI server (Node.js)
 ├── firewalla_cli.py          # CLI tool (Python)
 ├── setup_auth.js             # QR code authentication setup
+├── public/
+│   └── index.html            # Web UI interface
 ├── etp.private.pem           # Private key (generated)
 ├── etp.public.pem            # Public key (generated)
+├── .env                      # Configuration (create from .env.example)
+├── .env.example              # Configuration template
 ├── package.json              # Node.js dependencies
 ├── requirements.txt          # Python dependencies
 ├── time_extensions.log       # Activity log (generated)
-└── README.md                 # This file
+├── README.md                 # This file
+├── SETUP.md                  # Quick setup guide
+└── GMAIL_SETUP.md            # Gmail OAuth2 setup guide
 ```
 
 ## Troubleshooting
@@ -287,21 +367,42 @@ Or use the full path:
 ./venv/bin/python firewalla_cli.py list
 ```
 
+### Web UI Not Loading Policies
+
+1. Check bridge server is running: `curl http://localhost:3002/health`
+2. Check web server is running: `curl http://localhost:3003/api/policies`
+3. Look for errors in the browser console (F12)
+4. Restart both servers
+
+### Email Notifications Not Working
+
+1. Check web server shows "Email notifications: Enabled" at startup
+2. Verify all Gmail OAuth2 credentials are set in `.env`
+3. Test email: `curl -X POST http://localhost:3003/api/test-email`
+4. Check spam folder
+5. See [GMAIL_SETUP.md](GMAIL_SETUP.md) for detailed troubleshooting
+
 ## Security Notes
 
 - **Keep `etp.private.pem` secure!** This key allows full access to your Firewalla device.
+- **Keep `.env` file secure!** Contains Gmail OAuth2 credentials with send access.
 - The bridge server runs on localhost only (not exposed to network)
+- The web server runs on localhost only (not exposed to network)
 - All communication with Firewalla is encrypted
 - Activity is logged to `time_extensions.log` for audit purposes
+- Gmail OAuth2 uses refresh tokens (no password stored)
+- Email notifications include timestamp and policy details for audit trail
 
 ## Advanced Usage
 
-### Auto-Start Bridge Server on Boot
+### Auto-Start Servers on Boot
 
 Create a systemd service or add to crontab:
 
 ```bash
+# Start both servers on boot
 @reboot cd /home/ssilver/development/fw && nohup node firewalla_bridge.js > bridge.log 2>&1 &
+@reboot cd /home/ssilver/development/fw && sleep 5 && nohup node web_server.js > web_server.log 2>&1 &
 ```
 
 ### Create Shortcuts
@@ -321,7 +422,9 @@ fw-pause 5 30
 fw-log
 ```
 
-## API Endpoints (Bridge Server)
+## API Endpoints
+
+### Bridge Server (Port 3002)
 
 If you want to integrate with other tools:
 
@@ -336,6 +439,21 @@ If you want to integrate with other tools:
 Example:
 ```bash
 curl -X POST http://localhost:3002/api/policy/5/pause \
+  -H "Content-Type: application/json" \
+  -d '{"minutes": 30}'
+```
+
+### Web Server (Port 3003)
+
+- `GET /` - Web UI interface
+- `GET /api/policies` - Get all time-based policies with user info
+- `POST /api/policies/:pid/pause` - Pause a policy and send email (JSON: `{minutes: 30}`)
+- `GET /api/history` - Get pause history
+- `POST /api/test-email` - Send test email notification
+
+Example:
+```bash
+curl -X POST http://localhost:3003/api/policies/5/pause \
   -H "Content-Type: application/json" \
   -d '{"minutes": 30}'
 ```
