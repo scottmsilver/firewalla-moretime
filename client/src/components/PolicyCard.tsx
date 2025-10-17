@@ -156,14 +156,22 @@ export const PolicyCard: React.FC<PolicyCardProps> = React.memo(({ policy, timez
             {schedule}
           </Typography>
 
-          {expirationInfo && (
+          {policy.disabled && (
             <Box sx={{ my: 1, p: 1, bgcolor: 'success.50', borderRadius: 1, border: '1px solid', borderColor: 'success.200' }}>
-              <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>
-                Re-enables in {expirationInfo.minutesLeft} min
-              </Typography>
-              <Typography variant="body2" color="success.main" fontWeight={500}>
-                Resumes at {expirationInfo.expiresTimeStr}
-              </Typography>
+              {expirationInfo ? (
+                <>
+                  <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>
+                    Re-enables in {expirationInfo.minutesLeft} min
+                  </Typography>
+                  <Typography variant="body2" color="success.main" fontWeight={500}>
+                    Resumes at {expirationInfo.expiresTimeStr}
+                  </Typography>
+                </>
+              ) : (
+                <Typography variant="body2" color="success.main" fontWeight={500}>
+                  Re-enabling...
+                </Typography>
+              )}
             </Box>
           )}
 
