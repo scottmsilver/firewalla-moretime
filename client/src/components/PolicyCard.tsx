@@ -191,7 +191,7 @@ export const PolicyCard: React.FC<PolicyCardProps> = React.memo(({ policy, timez
                   variant="contained"
                   color="success"
                   onClick={handleEnable}
-                  disabled={loading}
+                  disabled={loading || !expirationInfo}
                 >
                   Resume Now
                 </Button>
