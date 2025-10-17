@@ -26,6 +26,12 @@ interface SettingsTabProps {
     adminEmail: string;
     firewallConfigured: boolean;
     emailConfigured: boolean;
+    firewallInfo?: {
+      gid: string;
+      model: string;
+      deviceName: string;
+      ipAddress: string;
+    };
   } | null;
   onSetupComplete: () => void;
 }
@@ -37,12 +43,43 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ setupConfig, onSetupCo
   const [firewallIP, setFirewallIP] = useState('');
   const [showCamera, setShowCamera] = useState(false);
   const [qrData, setQrData] = useState<string | null>(null);
+  const [qrInfo, setQrInfo] = useState<{gid?: string; model?: string; deviceName?: string} | null>(null);
   const [resetDialogOpen, setResetDialogOpen] = useState(false);
   const [confirmText, setConfirmText] = useState('');
+  const [bridgeStatus, setBridgeStatus] = useState<'checking' | 'connected' | 'disconnected'>('checking');
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  // Check bridge server health on mount
+  React.useEffect(() => {
+    const checkBridgeHealth = async () => {
+      if (!setupConfig?.firewallConfigured) {
+        setBridgeStatus('disconnected');
+        return;
+      }
+
+      try {
+        const response = await fetch('/health');
+        if (response.ok) {
+          const data = await response.json();
+          const newStatus = data.status === 'connected' ? 'connected' : 'disconnected';
+          setBridgeStatus(newStatus);
+        } else {
+          setBridgeStatus('disconnected');
+        }
+      } catch (err) {
+        console.error('Health check error:', err);
+        setBridgeStatus('disconnected');
+      }
+    };
+
+    checkBridgeHealth();
+    // Check every 30 seconds
+    const interval = setInterval(checkBridgeHealth, 30000);
+    return () => clearInterval(interval);
+  }, [setupConfig?.firewallConfigured]);
 
   const handleDisconnect = async () => {
     if (!window.confirm('Are you sure you want to disconnect from Firewalla? You will need to reconnect using a QR code.')) {
@@ -99,7 +136,24 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ setupConfig, onSetupCo
 
       const data = await response.json();
       setQrData(data.qrData);
-      setSuccess('QR code parsed successfully');
+
+      // Parse QR data to extract device info
+      try {
+        const qrJson = JSON.parse(data.qrData);
+        setQrInfo({
+          gid: qrJson.gid,
+          model: qrJson.model,
+          deviceName: qrJson.deviceName
+        });
+        // Auto-fill IP if available
+        if (qrJson.ipaddress && !firewallIP) {
+          setFirewallIP(qrJson.ipaddress);
+        }
+      } catch (e) {
+        // Ignore parse errors
+      }
+
+      setSuccess('QR code parsed successfully! Device information detected.');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error');
     } finally {
@@ -175,7 +229,24 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ setupConfig, onSetupCo
 
       const data = await response.json();
       setQrData(data.qrData);
-      setSuccess('QR code captured successfully');
+
+      // Parse QR data to extract device info
+      try {
+        const qrJson = JSON.parse(data.qrData);
+        setQrInfo({
+          gid: qrJson.gid,
+          model: qrJson.model,
+          deviceName: qrJson.deviceName
+        });
+        // Auto-fill IP if available
+        if (qrJson.ipaddress && !firewallIP) {
+          setFirewallIP(qrJson.ipaddress);
+        }
+      } catch (e) {
+        // Ignore parse errors
+      }
+
+      setSuccess('QR code captured successfully! Device information detected.');
       stopCamera();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error');
@@ -216,10 +287,19 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ setupConfig, onSetupCo
         throw new Error(data.error || 'Failed to connect to Firewalla');
       }
 
-      setSuccess('Connected to Firewalla successfully!');
+      const result = await response.json();
+      setSuccess(`Connected to Firewalla successfully! ${result.firewallInfo?.deviceName || 'Device'} (${result.firewallInfo?.model || 'unknown model'})`);
+
+      // Show restart message
+      if (result.requiresRestart) {
+        setTimeout(() => {
+          setSuccess('Connection saved! Please restart the bridge server: node firewalla_bridge.js');
+        }, 2000);
+      }
+
       setTimeout(() => {
         onSetupComplete();
-      }, 1500);
+      }, 4000);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error');
     } finally {
@@ -274,9 +354,92 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ setupConfig, onSetupCo
 
         {isConnected ? (
           <Box>
-            <Alert severity="success" sx={{ mb: 2 }}>
-              Connected to Firewalla
-            </Alert>
+            {bridgeStatus === 'connected' && (
+              <Alert severity="success" sx={{ mb: 2 }}>
+                <Typography variant="subtitle2" fontWeight={600} gutterBottom>
+                  ✅ Connected to Firewalla
+                </Typography>
+                {setupConfig?.firewallInfo && (
+                  <Box sx={{ mt: 1 }}>
+                    {setupConfig.firewallInfo.deviceName && setupConfig.firewallInfo.deviceName !== 'Firewalla (configured via CLI)' && (
+                      <Typography variant="body2">
+                        <strong>Device:</strong> {setupConfig.firewallInfo.deviceName}
+                      </Typography>
+                    )}
+                    {setupConfig.firewallInfo.model && setupConfig.firewallInfo.model !== 'unknown' && (
+                      <Typography variant="body2">
+                        <strong>Model:</strong> {setupConfig.firewallInfo.model}
+                      </Typography>
+                    )}
+                    {setupConfig.firewallInfo.ipAddress && (
+                      <Typography variant="body2">
+                        <strong>IP Address:</strong> {setupConfig.firewallInfo.ipAddress}
+                      </Typography>
+                    )}
+                    {setupConfig.firewallInfo.gid && setupConfig.firewallInfo.gid !== 'unknown' && (
+                      <Typography variant="caption" sx={{ display: 'block', mt: 0.5, opacity: 0.7 }}>
+                        Group ID: {setupConfig.firewallInfo.gid.substring(0, 8)}...
+                      </Typography>
+                    )}
+                  </Box>
+                )}
+                <Typography variant="body2" sx={{ mt: 1, opacity: 0.8 }}>
+                  Bridge server is running and connected.
+                </Typography>
+              </Alert>
+            )}
+
+            {bridgeStatus === 'disconnected' && (
+              <Alert severity="warning" sx={{ mb: 2 }}>
+                <Typography variant="subtitle2" fontWeight={600} gutterBottom>
+                  ⚠️ Bridge Server Not Running
+                </Typography>
+                {setupConfig?.firewallInfo && (
+                  <Box sx={{ mt: 1, mb: 1 }}>
+                    {setupConfig.firewallInfo.deviceName && setupConfig.firewallInfo.deviceName !== 'Firewalla (configured via CLI)' && (
+                      <Typography variant="body2">
+                        <strong>Device:</strong> {setupConfig.firewallInfo.deviceName}
+                      </Typography>
+                    )}
+                    {setupConfig.firewallInfo.model && setupConfig.firewallInfo.model !== 'unknown' && (
+                      <Typography variant="body2">
+                        <strong>Model:</strong> {setupConfig.firewallInfo.model}
+                      </Typography>
+                    )}
+                    {setupConfig.firewallInfo.ipAddress && (
+                      <Typography variant="body2">
+                        <strong>IP Address:</strong> {setupConfig.firewallInfo.ipAddress}
+                      </Typography>
+                    )}
+                  </Box>
+                )}
+                <Typography variant="body2" sx={{ mt: 1 }}>
+                  Configuration is saved, but the bridge server is not running. Start it with:
+                </Typography>
+                <Box
+                  component="code"
+                  sx={{
+                    display: 'block',
+                    mt: 1,
+                    p: 1,
+                    bgcolor: 'rgba(0, 0, 0, 0.1)',
+                    borderRadius: 1,
+                    fontFamily: 'monospace',
+                    fontSize: '0.85rem',
+                  }}
+                >
+                  node firewalla_bridge.js
+                </Box>
+              </Alert>
+            )}
+
+            {bridgeStatus === 'checking' && (
+              <Alert severity="info" sx={{ mb: 2 }}>
+                <Typography variant="body2">
+                  Checking bridge server status...
+                </Typography>
+              </Alert>
+            )}
             <Button
               variant="outlined"
               color="error"
@@ -296,13 +459,13 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ setupConfig, onSetupCo
             <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
               To connect to your Firewalla device:
               <br />
-              1. Open the Firewalla app on your phone
+              1. Open the <strong>Firewalla app</strong> on your phone
               <br />
-              2. Go to Settings → Advanced → API
+              2. Go to <strong>Settings → Additional Pairing</strong>
               <br />
-              3. Scan or upload the QR code shown there
+              3. Take a screenshot of the QR code or upload it below
               <br />
-              4. Enter your Firewalla's local IP address
+              4. The IP address will be auto-filled from the QR code
             </Typography>
 
             <Divider sx={{ my: 2 }} />
@@ -362,7 +525,33 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ setupConfig, onSetupCo
               </Box>
             )}
 
-            {qrData && (
+            {qrData && qrInfo && (
+              <Alert severity="info" sx={{ mb: 2 }}>
+                <Typography variant="subtitle2" fontWeight={600}>
+                  Firewalla Device Detected
+                </Typography>
+                {qrInfo.deviceName && (
+                  <Typography variant="body2">
+                    <strong>Name:</strong> {qrInfo.deviceName}
+                  </Typography>
+                )}
+                {qrInfo.model && (
+                  <Typography variant="body2">
+                    <strong>Model:</strong> {qrInfo.model}
+                  </Typography>
+                )}
+                {qrInfo.gid && (
+                  <Typography variant="caption" sx={{ display: 'block', mt: 0.5, opacity: 0.7 }}>
+                    Group ID: {qrInfo.gid.substring(0, 8)}...
+                  </Typography>
+                )}
+                <Typography variant="body2" sx={{ mt: 1 }}>
+                  Please verify the IP address below and click Connect.
+                </Typography>
+              </Alert>
+            )}
+
+            {qrData && !qrInfo && (
               <Alert severity="info" sx={{ mb: 2 }}>
                 QR code data received. Please enter your Firewalla IP address below.
               </Alert>

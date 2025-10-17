@@ -39,6 +39,12 @@ export interface SetupConfig {
   adminEmail: string;
   firewallConfigured: boolean;
   emailConfigured: boolean;
+  firewallInfo?: {
+    gid: string;
+    model: string;
+    deviceName: string;
+    ipAddress: string;
+  };
 }
 
 export interface AuthUser {

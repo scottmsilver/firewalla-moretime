@@ -221,9 +221,6 @@ reinitializeGoogleStrategy();
 // Initialize mail transporter
 mailTransporter = createMailTransporter();
 
-// Serve React build in production, or proxy to dev server in development
-app.use(express.static(join(__dirname, 'client', 'build')));
-
 // Configure multer for file uploads
 const upload = multer({
     storage: multer.memoryStorage(),
@@ -461,9 +458,14 @@ app.get('/api/policies', async (req, res) => {
             }
         }
 
-        // Filter time-based policies
+        // Add hardcoded quarantine tag mapping (tag:1 is the Firewalla quarantine group)
+        if (!tagToUsers['tag:1']) {
+            tagToUsers['tag:1'] = [{ uid: 'quarantine', name: 'Quarantine' }];
+        }
+
+        // Filter time-based policies (only 'mac' type for internet blocking, not 'intranet' for internal network blocking)
         const timePolicies = policyRules
-            .filter(p => ['mac', 'intranet'].includes(p.type) && p.duration && p.cronTime && p.tag)
+            .filter(p => p.type === 'mac' && p.duration && p.cronTime && p.tag)
             .map(p => {
                 const users = [];
                 for (const tag of (p.tag || [])) {
@@ -604,6 +606,21 @@ app.post('/api/policies/:pid/enable', async (req, res) => {
     }
 });
 
+// Check bridge server health
+app.get('/health', async (req, res) => {
+    try {
+        const response = await fetch(`${config.BRIDGE_URL}/health`);
+        if (response.ok) {
+            const data = await response.json();
+            res.json(data);
+        } else {
+            res.json({ status: 'disconnected', error: 'Bridge server not responding' });
+        }
+    } catch (error) {
+        res.json({ status: 'disconnected', error: error.message });
+    }
+});
+
 // Get pause history
 app.get('/api/history', async (req, res) => {
     try {
@@ -695,7 +712,7 @@ app.post('/api/firewalla/connect', requireAuth, async (req, res) => {
             return res.status(400).json({ error: 'QR data and Firewalla IP are required' });
         }
 
-        // Parse QR data (expected format: JSON with ETP keys)
+        // Parse QR data (expected format: JSON with gid, seed, ek)
         let qrJson;
         try {
             qrJson = JSON.parse(qrData);
@@ -703,41 +720,60 @@ app.post('/api/firewalla/connect', requireAuth, async (req, res) => {
             return res.status(400).json({ error: 'Invalid QR code format. Expected JSON data.' });
         }
 
-        // Extract ETP keys from QR data
-        if (!qrJson.publicKey || !qrJson.privateKey) {
-            return res.status(400).json({ error: 'QR code missing required keys (publicKey, privateKey)' });
+        // Validate QR data has required fields for key generation
+        if (!qrJson.gid || !qrJson.seed || !qrJson.ek) {
+            return res.status(400).json({
+                error: 'QR code missing required fields (gid, seed, ek). Please ensure you are using the QR code from Firewalla app Settings → Additional Pairing.'
+            });
         }
 
-        // Save ETP keys to files
+        // Import node-firewalla for key generation
+        const { SecureUtil } = await import('node-firewalla');
+
+        // Generate ETP keys from seed data
+        console.log('Generating ETP keys from QR code data...');
+        SecureUtil.generateKeyPairFromSeed({
+            eid: qrJson.gid,
+            seed: qrJson.seed,
+            ek: qrJson.ek
+        });
+
+        // Export keys to PEM files
         const publicKeyPath = join(__dirname, 'etp.public.pem');
         const privateKeyPath = join(__dirname, 'etp.private.pem');
+        SecureUtil.exportKeyPair(publicKeyPath, privateKeyPath);
+        console.log('✅ ETP keys generated and saved');
 
-        await fs.writeFile(publicKeyPath, qrJson.publicKey);
-        await fs.writeFile(privateKeyPath, qrJson.privateKey);
+        // Update .env file with Firewalla IP and EMAIL
+        await updateEnvFile({
+            FIREWALLA_IP: firewallIP,
+            EMAIL: 'api@firewalla.local'
+        });
 
-        // Update .env file with Firewalla IP
-        const envPath = join(__dirname, '.env');
-        let envContent = await fs.readFile(envPath, 'utf-8').catch(() => '');
-
-        // Update or add FIREWALLA_IP
-        if (envContent.includes('FIREWALLA_IP=')) {
-            envContent = envContent.replace(/FIREWALLA_IP=.*/g, `FIREWALLA_IP=${firewallIP}`);
-        } else {
-            envContent += `\nFIREWALLA_IP=${firewallIP}\n`;
-        }
-
-        await fs.writeFile(envPath, envContent);
-
-        // Update setup configuration
+        // Update setup configuration with device info
         const setup = await loadSetupConfig();
         setup.firewallConfigured = true;
+        setup.firewallInfo = {
+            gid: qrJson.gid,
+            model: qrJson.model,
+            deviceName: qrJson.deviceName,
+            ipAddress: firewallIP
+        };
         await saveSetupConfig(setup);
+
+        console.log('✅ Firewalla configuration saved');
 
         // Notify user to restart the bridge
         res.json({
             success: true,
-            message: 'Firewalla connection configured. Please restart the bridge server to connect.',
-            requiresRestart: true
+            message: 'Firewalla connection configured successfully! Please restart the bridge server to connect.',
+            requiresRestart: true,
+            firewallInfo: {
+                gid: qrJson.gid,
+                model: qrJson.model,
+                deviceName: qrJson.deviceName,
+                ipAddress: firewallIP
+            }
         });
     } catch (error) {
         console.error('Firewalla connection error:', error);
@@ -771,8 +807,25 @@ app.post('/api/firewalla/disconnect', requireAuth, async (req, res) => {
     }
 });
 
+// Serve React build static files (CSS, JS, images, etc.)
+// This must come AFTER all API routes to avoid conflicts
+app.use(express.static(join(__dirname, 'client', 'build')));
+
 // Serve main page - serves React app from build directory
+// All these routes serve the same React app, which handles client-side routing
 app.get('/', (req, res) => {
+    res.sendFile(join(__dirname, 'client', 'build', 'index.html'));
+});
+
+app.get('/schedules', (req, res) => {
+    res.sendFile(join(__dirname, 'client', 'build', 'index.html'));
+});
+
+app.get('/history', (req, res) => {
+    res.sendFile(join(__dirname, 'client', 'build', 'index.html'));
+});
+
+app.get('/settings', (req, res) => {
     res.sendFile(join(__dirname, 'client', 'build', 'index.html'));
 });
 

@@ -48,7 +48,15 @@ const theme = createTheme({
 });
 
 function App() {
-  const [currentTab, setCurrentTab] = useState(0);
+  // Initialize tab based on URL path
+  const getInitialTab = () => {
+    const path = window.location.pathname;
+    if (path === '/history') return 1;
+    if (path === '/settings') return 2;
+    return 0; // schedules or home
+  };
+
+  const [currentTab, setCurrentTab] = useState(getInitialTab());
   const [policies, setPolicies] = useState<Policy[]>([]);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -208,10 +216,28 @@ function App() {
 
   const handleTabChange = (_event: React.SyntheticEvent, newValue: number) => {
     setCurrentTab(newValue);
+
+    // Update URL without full page reload
+    const paths = ['/', '/history', '/settings'];
+    window.history.pushState({}, '', paths[newValue]);
+
     if (newValue === 1) {
       fetchHistory();
     }
   };
+
+  // Handle browser back/forward buttons
+  useEffect(() => {
+    const handlePopState = () => {
+      setCurrentTab(getInitialTab());
+      if (getInitialTab() === 1) {
+        fetchHistory();
+      }
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, [fetchHistory]);
 
   const handleManualRefresh = useCallback(() => {
     fetchPolicies(false);
@@ -277,6 +303,9 @@ function App() {
                 <Box>
                   <Typography variant="h5" component="h1" fontWeight={600}>
                     More Time
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem' }}>
+                    v1.0.8
                   </Typography>
                 </Box>
                 <Box display="flex" alignItems="center" gap={1}>
