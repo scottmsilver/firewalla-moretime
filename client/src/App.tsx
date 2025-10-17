@@ -162,12 +162,17 @@ function App() {
   const handlePause = useCallback(async (pid: string, minutes: number, reason: string) => {
     try {
       const result = await api.pausePolicy(pid, minutes, reason);
+      const expiresDate = new Date(result.expiresAt);
+      const timeStr = formatTime(expiresDate, timezone);
+      // Get timezone abbreviation if available
+      const tzName = timezone ? expiresDate.toLocaleTimeString('en-US', {
+        timeZone: timezone,
+        timeZoneName: 'short'
+      }).split(' ').pop() : '';
+
       setSnackbar({
         open: true,
-        message: `Policy paused for ${minutes} minutes! Will re-enable at ${formatTime(
-          new Date(result.expiresAt),
-          timezone
-        )}`,
+        message: `Policy paused for ${minutes} minutes! Will re-enable at ${timeStr}${tzName ? ' ' + tzName : ''}`,
         severity: 'success',
       });
       // Small delay to ensure Firewalla has fully processed the update
@@ -181,7 +186,7 @@ function App() {
         severity: 'error',
       });
     }
-  }, [fetchPolicies, fetchHistory]);
+  }, [fetchPolicies, fetchHistory, timezone]);
 
   const handleEnable = useCallback(async (pid: string) => {
     try {
