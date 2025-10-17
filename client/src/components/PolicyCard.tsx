@@ -223,7 +223,7 @@ export const PolicyCard: React.FC<PolicyCardProps> = React.memo(({ policy, timez
       </Card>
 
       <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>Pause Policy for {selectedMinutes} minutes</DialogTitle>
+        <DialogTitle>Pause for {selectedMinutes} {selectedMinutes === 1 ? 'minute' : 'minutes'}</DialogTitle>
         <DialogContent>
           <TextField
             autoFocus

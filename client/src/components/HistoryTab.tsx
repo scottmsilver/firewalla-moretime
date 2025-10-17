@@ -44,10 +44,10 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({ history, loading }) => {
                 </Typography>
               </Box>
               <Typography variant="body1" fontWeight={600}>
-                Policy {entry.policy_id} ({entry.tags.join(', ')})
+                Schedule {entry.policy_id} ({entry.tags.join(', ')})
               </Typography>
               <Typography variant="body2">
-                Paused for <strong>{entry.duration_minutes} minutes</strong>
+                Paused for <strong>{entry.duration_minutes} {entry.duration_minutes === 1 ? 'minute' : 'minutes'}</strong>
               </Typography>
               {entry.reason && (
                 <Typography variant="body2" color="primary" fontStyle="italic" mt={0.5}>

@@ -417,10 +417,10 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ setupConfig, onSetupCo
               }}
             />
           }
-          label="Show Policy IDs (Debug Mode)"
+          label="Show IDs (Debug Mode)"
         />
         <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-          Enable this to see policy IDs in the policy cards for debugging purposes.
+          Enable this to see schedule IDs for debugging purposes.
         </Typography>
       </Paper>
 

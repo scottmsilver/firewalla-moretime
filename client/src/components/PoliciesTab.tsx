@@ -29,7 +29,7 @@ export const PoliciesTab: React.FC<PoliciesTabProps> = ({
   if (policies.length === 0) {
     return (
       <Box display="flex" justifyContent="center" alignItems="center" minHeight="200px">
-        <Typography color="text.secondary">No time-based policies found</Typography>
+        <Typography color="text.secondary">No schedules found</Typography>
       </Box>
     );
   }

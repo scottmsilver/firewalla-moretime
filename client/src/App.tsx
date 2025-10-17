@@ -121,7 +121,7 @@ function App() {
     } catch (error) {
       setSnackbar({
         open: true,
-        message: `Failed to load policies: ${error}`,
+        message: `Failed to load schedules: ${error}`,
         severity: 'error',
       });
     } finally {
@@ -172,7 +172,7 @@ function App() {
 
       setSnackbar({
         open: true,
-        message: `Policy paused for ${minutes} minutes! Will re-enable at ${timeStr}${tzName ? ' ' + tzName : ''}`,
+        message: `Paused for ${minutes} ${minutes === 1 ? 'minute' : 'minutes'}! Will resume at ${timeStr}${tzName ? ' ' + tzName : ''}`,
         severity: 'success',
       });
       // Small delay to ensure Firewalla has fully processed the update
@@ -193,7 +193,7 @@ function App() {
       await api.enablePolicy(pid);
       setSnackbar({
         open: true,
-        message: 'Policy re-enabled! Blocking is now active.',
+        message: 'Resumed! Blocking is now active.',
         severity: 'success',
       });
       await fetchPolicies(false); // Background refresh
@@ -276,16 +276,8 @@ function App() {
               <Box display="flex" justifyContent="space-between" alignItems="center">
                 <Box>
                   <Typography variant="h5" component="h1" fontWeight={600}>
-                    Time Manager
+                    More Time
                   </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    Internet access policies
-                  </Typography>
-                  {timezone && (
-                    <Typography variant="caption" color="text.secondary">
-                      Firewalla time: {formatTime(currentTime, timezone)}
-                    </Typography>
-                  )}
                 </Box>
                 <Box display="flex" alignItems="center" gap={1}>
                   <Tooltip title="Account">
@@ -338,7 +330,7 @@ function App() {
                 <Box display="flex" alignItems="center" gap={0.5} mt={0.5}>
                   <Typography variant="caption" color="text.secondary">
                     Last updated: {formatTime(lastUpdated, timezone)} • {policies.length}{' '}
-                    {policies.length === 1 ? 'policy' : 'policies'}
+                    {policies.length === 1 ? 'schedule' : 'schedules'}
                   </Typography>
                   <Tooltip title={refreshing ? "Refreshing..." : "Refresh now"}>
                     <IconButton
@@ -372,7 +364,7 @@ function App() {
 
             <Box sx={{ mb: 2 }}>
               <Tabs value={currentTab} onChange={handleTabChange}>
-                <Tab label="Policies" />
+                <Tab label="Schedules" />
                 <Tab label="History" />
                 <Tab label="Settings" />
               </Tabs>
