@@ -1,0 +1,16 @@
+{
+  "verbose": false,
+  "watch": [
+    "*.js"
+  ],
+  "ignore": [
+    "client/**",
+    "node_modules/**",
+    "*.log",
+    "time_extensions.log",
+    "setup.json",
+    ".env",
+    "etp.*.pem"
+  ],
+  "ext": "js"
+}

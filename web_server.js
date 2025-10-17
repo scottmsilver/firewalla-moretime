@@ -28,16 +28,180 @@ dotenv.config();
 const app = express();
 app.use(express.json());
 
+// Constants
+const SETUP_FILE = join(__dirname, 'setup.json');
+const ENV_FILE = join(__dirname, '.env');
+
+// Configuration state (reloadable)
+let config = {
+    WEB_PORT: process.env.WEB_PORT || 3003,
+    WEB_URL: process.env.WEB_URL || `http://localhost:${process.env.WEB_PORT || 3003}`,
+    BRIDGE_URL: process.env.BRIDGE_URL || 'http://localhost:3002',
+    LOG_FILE: process.env.LOG_FILE || 'time_extensions.log',
+    GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID || '',
+    GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET || '',
+    SESSION_SECRET: process.env.SESSION_SECRET || 'change-this-secret',
+    GMAIL_USER: process.env.GMAIL_USER || '',
+    GMAIL_CLIENT_ID: process.env.GMAIL_CLIENT_ID || '',
+    GMAIL_CLIENT_SECRET: process.env.GMAIL_CLIENT_SECRET || '',
+    GMAIL_REFRESH_TOKEN: process.env.GMAIL_REFRESH_TOKEN || '',
+    NOTIFY_EMAIL: process.env.NOTIFY_EMAIL || ''
+};
+
+// Gmail transporter (reloadable)
+let mailTransporter = null;
+
+// Helper: Reload environment variables from .env file
+async function reloadEnv() {
+    try {
+        // Read .env file
+        const envContent = await fs.readFile(ENV_FILE, 'utf-8');
+
+        // Parse .env file manually
+        const envVars = {};
+        for (const line of envContent.split('\n')) {
+            const trimmed = line.trim();
+            if (trimmed && !trimmed.startsWith('#')) {
+                const [key, ...valueParts] = trimmed.split('=');
+                if (key && valueParts.length > 0) {
+                    envVars[key.trim()] = valueParts.join('=').trim();
+                }
+            }
+        }
+
+        // Update process.env
+        Object.assign(process.env, envVars);
+
+        // Update config object
+        config = {
+            WEB_PORT: process.env.WEB_PORT || 3003,
+            WEB_URL: process.env.WEB_URL || `http://localhost:${process.env.WEB_PORT || 3003}`,
+            BRIDGE_URL: process.env.BRIDGE_URL || 'http://localhost:3002',
+            LOG_FILE: process.env.LOG_FILE || 'time_extensions.log',
+            GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID || '',
+            GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET || '',
+            SESSION_SECRET: process.env.SESSION_SECRET || 'change-this-secret',
+            GMAIL_USER: process.env.GMAIL_USER || '',
+            GMAIL_CLIENT_ID: process.env.GMAIL_CLIENT_ID || '',
+            GMAIL_CLIENT_SECRET: process.env.GMAIL_CLIENT_SECRET || '',
+            GMAIL_REFRESH_TOKEN: process.env.GMAIL_REFRESH_TOKEN || '',
+            NOTIFY_EMAIL: process.env.NOTIFY_EMAIL || ''
+        };
+
+        console.log('✅ Configuration reloaded from .env');
+        return true;
+    } catch (error) {
+        console.error('Failed to reload .env:', error.message);
+        return false;
+    }
+}
+
+// Helper: Create Gmail transporter
+function createMailTransporter() {
+    if (!config.GMAIL_USER || !config.GMAIL_CLIENT_ID) {
+        console.warn('⚠️  Gmail not configured. Email notifications will be disabled.');
+        return null;
+    }
+
+    try {
+        return nodemailer.createTransporter({
+            service: 'gmail',
+            auth: {
+                type: 'OAuth2',
+                user: config.GMAIL_USER,
+                clientId: config.GMAIL_CLIENT_ID,
+                clientSecret: config.GMAIL_CLIENT_SECRET,
+                refreshToken: config.GMAIL_REFRESH_TOKEN
+            }
+        });
+    } catch (error) {
+        console.error('Failed to create mail transporter:', error.message);
+        return null;
+    }
+}
+
+// Helper: Reinitialize Google OAuth strategy
+function reinitializeGoogleStrategy() {
+    // Remove existing strategy if present
+    if (passport._strategies['google']) {
+        passport.unuse('google');
+    }
+
+    // Add new strategy if credentials are available
+    if (config.GOOGLE_CLIENT_ID && config.GOOGLE_CLIENT_SECRET) {
+        passport.use(new GoogleStrategy({
+            clientID: config.GOOGLE_CLIENT_ID,
+            clientSecret: config.GOOGLE_CLIENT_SECRET,
+            callbackURL: `${config.WEB_URL}/auth/google/callback`,
+            scope: ['profile', 'email', 'https://www.googleapis.com/auth/gmail.send']
+        }, (accessToken, refreshToken, profile, done) => {
+            // Store user info and tokens
+            const user = {
+                id: profile.id,
+                email: profile.emails[0].value,
+                name: profile.displayName,
+                picture: profile.photos[0]?.value,
+                accessToken,
+                refreshToken
+            };
+            return done(null, user);
+        }));
+        console.log('✅ Google OAuth strategy initialized');
+        return true;
+    }
+    console.warn('⚠️  Google OAuth not configured');
+    return false;
+}
+
+// Helper: Reload configuration
+async function reloadConfig() {
+    await reloadEnv();
+    reinitializeGoogleStrategy();
+    mailTransporter = createMailTransporter();
+    return true;
+}
+
+// Add request/response logging middleware
+app.use((req, res, next) => {
+    const originalSend = res.send;
+    const originalJson = res.json;
+
+    res.send = function(data) {
+        console.log(`📤 Response for ${req.method} ${req.path}: status=${res.statusCode}, length=${data?.length || 0}`);
+        return originalSend.call(this, data);
+    };
+
+    res.json = function(data) {
+        console.log(`📤 JSON Response for ${req.method} ${req.path}: status=${res.statusCode}, data=${JSON.stringify(data).substring(0, 200)}`);
+        return originalJson.call(this, data);
+    };
+
+    next();
+});
+
 // Session configuration
 app.use(session({
-    secret: process.env.SESSION_SECRET || 'change-this-secret',
+    secret: config.SESSION_SECRET,
     resave: false,
     saveUninitialized: false,
     cookie: {
-        secure: process.env.NODE_ENV === 'production', // HTTPS only in production
+        secure: process.env.NODE_ENV === 'production',
         maxAge: 24 * 60 * 60 * 1000 // 24 hours
     }
 }));
+
+// Add error handling middleware for session errors
+app.use((err, req, res, next) => {
+    console.error('❌ Middleware error:', err);
+    if (err) {
+        // Clear the bad session
+        if (req.session) {
+            req.session.destroy(() => {});
+        }
+        return res.status(500).json({ error: 'Session error', details: err.message });
+    }
+    next();
+});
 
 // Passport configuration
 app.use(passport.initialize());
@@ -51,64 +215,14 @@ passport.deserializeUser((user, done) => {
     done(null, user);
 });
 
-// Google OAuth Strategy
-if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
-    passport.use(new GoogleStrategy({
-        clientID: process.env.GOOGLE_CLIENT_ID,
-        clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-        callbackURL: `${process.env.WEB_URL || 'http://localhost:3003'}/auth/google/callback`,
-        scope: ['profile', 'email', 'https://www.googleapis.com/auth/gmail.send']
-    }, (accessToken, refreshToken, profile, done) => {
-        // Store user info and tokens
-        const user = {
-            id: profile.id,
-            email: profile.emails[0].value,
-            name: profile.displayName,
-            picture: profile.photos[0]?.value,
-            accessToken,
-            refreshToken
-        };
-        return done(null, user);
-    }));
-}
+// Initialize Google OAuth strategy
+reinitializeGoogleStrategy();
+
+// Initialize mail transporter
+mailTransporter = createMailTransporter();
 
 // Serve React build in production, or proxy to dev server in development
 app.use(express.static(join(__dirname, 'client', 'build')));
-
-const WEB_PORT = process.env.WEB_PORT || 3003;
-const WEB_URL = process.env.WEB_URL || `http://localhost:${WEB_PORT}`;
-const BRIDGE_URL = process.env.BRIDGE_URL || 'http://localhost:3002';
-const LOG_FILE = process.env.LOG_FILE || 'time_extensions.log';
-const SETUP_FILE = join(__dirname, 'setup.json');
-
-// Gmail transporter
-let mailTransporter = null;
-
-function createMailTransporter() {
-    if (!process.env.GMAIL_USER || !process.env.GMAIL_CLIENT_ID) {
-        console.warn('⚠️  Gmail not configured. Email notifications will be disabled.');
-        console.warn('   Set GMAIL_USER, GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, and GMAIL_REFRESH_TOKEN in .env');
-        return null;
-    }
-
-    try {
-        return nodemailer.createTransporter({
-            service: 'gmail',
-            auth: {
-                type: 'OAuth2',
-                user: process.env.GMAIL_USER,
-                clientId: process.env.GMAIL_CLIENT_ID,
-                clientSecret: process.env.GMAIL_CLIENT_SECRET,
-                refreshToken: process.env.GMAIL_REFRESH_TOKEN
-            }
-        });
-    } catch (error) {
-        console.error('Failed to create mail transporter:', error.message);
-        return null;
-    }
-}
-
-mailTransporter = createMailTransporter();
 
 // Configure multer for file uploads
 const upload = multer({
@@ -125,12 +239,39 @@ const upload = multer({
 
 // Helper function to fetch from bridge
 async function bridgeFetch(path, options = {}) {
-    const response = await fetch(`${BRIDGE_URL}${path}`, options);
+    const response = await fetch(`${config.BRIDGE_URL}${path}`, options);
     if (!response.ok) {
         const error = await response.json().catch(() => ({ error: response.statusText }));
         throw new Error(error.error || 'Bridge request failed');
     }
     return response.json();
+}
+
+// Helper: Update .env file
+async function updateEnvFile(updates) {
+    try {
+        let envContent = await fs.readFile(ENV_FILE, 'utf-8').catch(() => '');
+
+        for (const [key, value] of Object.entries(updates)) {
+            const escapedValue = value.replace(/\$/g, '\\$'); // Escape $ signs
+            const regex = new RegExp(`^${key}=.*$`, 'gm');
+
+            if (envContent.match(regex)) {
+                // Update existing key
+                envContent = envContent.replace(regex, `${key}=${escapedValue}`);
+            } else {
+                // Add new key
+                envContent += `\n${key}=${escapedValue}`;
+            }
+        }
+
+        await fs.writeFile(ENV_FILE, envContent);
+        console.log('✅ .env file updated');
+        return true;
+    } catch (error) {
+        console.error('Failed to update .env file:', error.message);
+        throw error;
+    }
 }
 
 // Helper: Load setup configuration
@@ -168,12 +309,20 @@ function requireAuth(req, res, next) {
 
 // Check auth status
 app.get('/api/auth/status', async (req, res) => {
-    const setup = await loadSetupConfig();
-    res.json({
-        authenticated: req.isAuthenticated(),
-        user: req.user || null,
-        setup: setup
-    });
+    try {
+        console.log('📍 GET /api/auth/status - Request received');
+        const setup = await loadSetupConfig();
+        console.log('✅ Setup config loaded:', setup);
+        res.json({
+            authenticated: req.isAuthenticated(),
+            user: req.user || null,
+            setup: setup,
+            oauthConfigured: !!(config.GOOGLE_CLIENT_ID && config.GOOGLE_CLIENT_SECRET)
+        });
+    } catch (error) {
+        console.error('❌ Error in /api/auth/status:', error);
+        res.status(500).json({ error: error.message });
+    }
 });
 
 // Initiate Google OAuth
@@ -210,12 +359,90 @@ app.post('/api/auth/logout', (req, res) => {
     });
 });
 
+// Configuration Management Routes
+
+// Update OAuth credentials
+app.post('/api/admin/configure-oauth', async (req, res) => {
+    try {
+        const { clientId, clientSecret } = req.body;
+
+        if (!clientId || !clientSecret) {
+            return res.status(400).json({ error: 'Client ID and Client Secret are required' });
+        }
+
+        // Update .env file
+        await updateEnvFile({
+            GOOGLE_CLIENT_ID: clientId,
+            GOOGLE_CLIENT_SECRET: clientSecret
+        });
+
+        // Reload configuration
+        await reloadConfig();
+
+        res.json({ success: true, message: 'OAuth credentials configured successfully' });
+    } catch (error) {
+        console.error('OAuth configuration error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Reload configuration
+app.post('/api/admin/reload-config', async (req, res) => {
+    try {
+        await reloadConfig();
+        res.json({ success: true, message: 'Configuration reloaded successfully' });
+    } catch (error) {
+        console.error('Config reload error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Reset admin and all setup
+app.post('/api/admin/reset', requireAuth, async (req, res) => {
+    try {
+        // Delete setup.json
+        await fs.unlink(SETUP_FILE).catch(() => {});
+
+        // Optionally delete Firewalla connection
+        const publicKeyPath = join(__dirname, 'etp.public.pem');
+        const privateKeyPath = join(__dirname, 'etp.private.pem');
+        await fs.unlink(publicKeyPath).catch(() => {});
+        await fs.unlink(privateKeyPath).catch(() => {});
+
+        // Clear Gmail config from .env
+        await updateEnvFile({
+            GMAIL_USER: '',
+            GMAIL_REFRESH_TOKEN: '',
+            NOTIFY_EMAIL: ''
+        });
+
+        // Reload config
+        await reloadConfig();
+
+        // Logout user
+        req.logout((err) => {
+            if (err) {
+                console.error('Logout error during reset:', err);
+            }
+            res.json({
+                success: true,
+                message: 'Admin settings reset. Please log in again to set up.'
+            });
+        });
+    } catch (error) {
+        console.error('Reset error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // API Routes
 
 // Get all policies with users
 app.get('/api/policies', async (req, res) => {
     try {
+        console.log('📍 GET /api/policies - Request received');
         const data = await bridgeFetch('/api/init');
+        console.log('✅ Bridge fetch successful');
 
         const policyRules = data.policyRules || [];
         const userTags = data.userTags || {};
@@ -267,6 +494,7 @@ app.get('/api/policies', async (req, res) => {
             timezone: data.timezone || 'UTC' // Include Firewalla's timezone
         });
     } catch (error) {
+        console.error('❌ Error in /api/policies:', error);
         res.status(500).json({ error: error.message });
     }
 });
@@ -324,17 +552,17 @@ app.post('/api/policies/:pid/pause', async (req, res) => {
 
         // Write to log file
         try {
-            await fs.appendFile(LOG_FILE, JSON.stringify(logEntry) + '\n');
+            await fs.appendFile(config.LOG_FILE, JSON.stringify(logEntry) + '\n');
         } catch (logError) {
             console.error('Failed to write to log file:', logError.message);
         }
 
         // Send email notification
-        if (mailTransporter && process.env.NOTIFY_EMAIL) {
+        if (mailTransporter && config.NOTIFY_EMAIL) {
             try {
                 await mailTransporter.sendMail({
-                    from: process.env.GMAIL_USER,
-                    to: process.env.NOTIFY_EMAIL,
+                    from: config.GMAIL_USER,
+                    to: config.NOTIFY_EMAIL,
                     subject: `Firewalla: Internet Access Granted for ${userName}`,
                     html: `
                         <h2>Internet Access Granted</h2>
@@ -348,7 +576,7 @@ app.post('/api/policies/:pid/pause', async (req, res) => {
                         <p><em>This policy will automatically re-enable after ${minutes} minutes.</em></p>
                     `
                 });
-                console.log(`✉️  Email sent to ${process.env.NOTIFY_EMAIL}`);
+                console.log(`✉️  Email sent to ${config.NOTIFY_EMAIL}`);
             } catch (emailError) {
                 console.error('Failed to send email:', emailError.message);
             }
@@ -379,7 +607,7 @@ app.post('/api/policies/:pid/enable', async (req, res) => {
 // Get pause history
 app.get('/api/history', async (req, res) => {
     try {
-        const content = await fs.readFile(LOG_FILE, 'utf-8');
+        const content = await fs.readFile(config.LOG_FILE, 'utf-8');
         const lines = content.trim().split('\n').filter(line => line);
         const history = lines
             .map(line => {
@@ -410,8 +638,8 @@ app.post('/api/test-email', async (req, res) => {
 
     try {
         await mailTransporter.sendMail({
-            from: process.env.GMAIL_USER,
-            to: process.env.NOTIFY_EMAIL || process.env.GMAIL_USER,
+            from: config.GMAIL_USER,
+            to: config.NOTIFY_EMAIL || config.GMAIL_USER,
             subject: 'Firewalla Time Manager - Test Email',
             html: `
                 <h2>Test Email</h2>
@@ -549,17 +777,23 @@ app.get('/', (req, res) => {
 });
 
 // Start server
-app.listen(WEB_PORT, () => {
+app.listen(config.WEB_PORT, () => {
     console.log(`\n🌐 Firewalla Time Manager Web UI`);
-    console.log(`   Running on http://localhost:${WEB_PORT}`);
-    console.log(`\n📡 Bridge API: ${BRIDGE_URL}`);
+    console.log(`   Running on http://localhost:${config.WEB_PORT}`);
+    console.log(`\n📡 Bridge API: ${config.BRIDGE_URL}`);
+
+    if (config.GOOGLE_CLIENT_ID && config.GOOGLE_CLIENT_SECRET) {
+        console.log(`✅ Google OAuth: Configured`);
+    } else {
+        console.log(`⚠️  Google OAuth: Not configured (setup required)`);
+    }
 
     if (mailTransporter) {
-        console.log(`✉️  Email notifications: Enabled (${process.env.GMAIL_USER})`);
-        console.log(`   Sending to: ${process.env.NOTIFY_EMAIL || 'Not configured'}`);
+        console.log(`✉️  Email notifications: Enabled (${config.GMAIL_USER})`);
+        console.log(`   Sending to: ${config.NOTIFY_EMAIL || 'Not configured'}`);
     } else {
         console.log(`✉️  Email notifications: Disabled`);
     }
 
-    console.log(`\n✨ Open http://localhost:${WEB_PORT} in your browser\n`);
+    console.log(`\n✨ Open http://localhost:${config.WEB_PORT} in your browser\n`);
 });

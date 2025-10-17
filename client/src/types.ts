@@ -33,3 +33,24 @@ export interface HistoryEntry {
   reason?: string;
   expires_at: string;
 }
+
+export interface SetupConfig {
+  setupComplete: boolean;
+  adminEmail: string;
+  firewallConfigured: boolean;
+  emailConfigured: boolean;
+}
+
+export interface AuthUser {
+  id: string;
+  email: string;
+  name: string;
+  picture?: string;
+}
+
+export interface AuthStatus {
+  authenticated: boolean;
+  user: AuthUser | null;
+  setup: SetupConfig;
+  oauthConfigured: boolean;
+}

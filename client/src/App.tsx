@@ -14,13 +14,21 @@ import {
   CircularProgress,
   IconButton,
   Tooltip,
+  Avatar,
+  Menu,
+  MenuItem,
+  ListItemIcon,
+  Divider,
 } from '@mui/material';
 import RefreshIcon from '@mui/icons-material/Refresh';
+import LogoutIcon from '@mui/icons-material/Logout';
+import AccountCircleIcon from '@mui/icons-material/AccountCircle';
 import { PoliciesTab } from './components/PoliciesTab';
 import { HistoryTab } from './components/HistoryTab';
 import { SettingsTab } from './components/SettingsTab';
 import { Login } from './components/Login';
-import { Policy, HistoryEntry } from './types';
+import { SetupWizard } from './components/SetupWizard';
+import { Policy, HistoryEntry, AuthStatus } from './types';
 import { api } from './services/api';
 import { formatTime } from './utils/formatters';
 
@@ -39,13 +47,6 @@ const theme = createTheme({
   },
 });
 
-interface SetupConfig {
-  setupComplete: boolean;
-  adminEmail: string;
-  firewallConfigured: boolean;
-  emailConfigured: boolean;
-}
-
 function App() {
   const [currentTab, setCurrentTab] = useState(0);
   const [policies, setPolicies] = useState<Policy[]>([]);
@@ -53,8 +54,7 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false); // Background refresh indicator
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
-  const [authenticated, setAuthenticated] = useState<boolean | null>(null); // null = checking
-  const [setupConfig, setSetupConfig] = useState<SetupConfig | null>(null);
+  const [authStatus, setAuthStatus] = useState<AuthStatus | null>(null); // null = checking
   const [currentTime, setCurrentTime] = useState(new Date());
   const [timezone, setTimezone] = useState<string | null>(null); // Firewalla timezone (null until loaded)
   const [snackbar, setSnackbar] = useState<{
@@ -62,33 +62,41 @@ function App() {
     message: string;
     severity: 'success' | 'error' | 'info';
   }>({ open: false, message: '', severity: 'info' });
+  const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
 
   // Check authentication status and load setup config
-  useEffect(() => {
-    const checkAuth = async () => {
-      try {
-        const response = await fetch('/api/auth/status');
-        const data = await response.json();
-        setAuthenticated(data.authenticated);
-        setSetupConfig(data.setup);
-      } catch (error) {
-        console.error('Auth check failed:', error);
-        setAuthenticated(false);
+  const checkAuth = useCallback(async () => {
+    try {
+      const response = await fetch('/api/auth/status');
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
       }
-    };
-    checkAuth();
+      const data: AuthStatus = await response.json();
+      setAuthStatus(data);
+    } catch (error) {
+      console.error('Auth check failed:', error);
+      setAuthStatus({
+        authenticated: false,
+        user: null,
+        setup: {
+          setupComplete: false,
+          adminEmail: '',
+          firewallConfigured: false,
+          emailConfigured: false,
+        },
+        oauthConfigured: false,
+      });
+    }
   }, []);
+
+  useEffect(() => {
+    checkAuth();
+  }, [checkAuth]);
 
   // Callback to refresh setup config after changes
   const refreshSetup = useCallback(async () => {
-    try {
-      const response = await fetch('/api/auth/status');
-      const data = await response.json();
-      setSetupConfig(data.setup);
-    } catch (error) {
-      console.error('Failed to refresh setup config:', error);
-    }
-  }, []);
+    await checkAuth();
+  }, [checkAuth]);
 
   // Update current time every second
   useEffect(() => {
@@ -207,29 +215,64 @@ function App() {
     }
   }, [fetchPolicies, fetchHistory, currentTab]);
 
+  const handleMenuOpen = (event: React.MouseEvent<HTMLElement>) => {
+    setAnchorEl(event.currentTarget);
+  };
+
+  const handleMenuClose = () => {
+    setAnchorEl(null);
+  };
+
+  const handleLogout = async () => {
+    try {
+      const response = await fetch('/api/auth/logout', { method: 'POST' });
+      if (response.ok) {
+        window.location.href = '/';
+      } else {
+        setSnackbar({
+          open: true,
+          message: 'Logout failed',
+          severity: 'error',
+        });
+      }
+    } catch (error) {
+      setSnackbar({
+        open: true,
+        message: `Logout error: ${error}`,
+        severity: 'error',
+      });
+    }
+    handleMenuClose();
+  };
+
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
       {/* Show loading spinner while checking auth */}
-      {authenticated === null && (
+      {authStatus === null && (
         <Box display="flex" justifyContent="center" alignItems="center" minHeight="100vh">
           <CircularProgress />
         </Box>
       )}
 
-      {/* Show login if not authenticated */}
-      {authenticated === false && <Login />}
+      {/* Show setup wizard if OAuth not configured */}
+      {authStatus && !authStatus.oauthConfigured && (
+        <SetupWizard onComplete={refreshSetup} />
+      )}
+
+      {/* Show login if OAuth configured but not authenticated */}
+      {authStatus && authStatus.oauthConfigured && !authStatus.authenticated && <Login />}
 
       {/* Show main app if authenticated */}
-      {authenticated === true && (
+      {authStatus && authStatus.oauthConfigured && authStatus.authenticated && (
         <Box sx={{ bgcolor: '#f8f9fa', minHeight: '100vh', py: 3 }}>
           <Container maxWidth="lg">
             <Paper sx={{ p: 2, mb: 1 }}>
-              <Box display="flex" justifyContent="space-between" alignItems="baseline">
-                <Typography variant="h5" component="h1" fontWeight={600}>
-                  Time Manager
-                </Typography>
-                <Box sx={{ textAlign: 'right' }}>
+              <Box display="flex" justifyContent="space-between" alignItems="center">
+                <Box>
+                  <Typography variant="h5" component="h1" fontWeight={600}>
+                    Time Manager
+                  </Typography>
                   <Typography variant="body2" color="text.secondary">
                     Internet access policies
                   </Typography>
@@ -238,6 +281,52 @@ function App() {
                       Firewalla time: {formatTime(currentTime, timezone)}
                     </Typography>
                   )}
+                </Box>
+                <Box display="flex" alignItems="center" gap={1}>
+                  <Tooltip title="Account">
+                    <IconButton onClick={handleMenuOpen} size="small">
+                      {authStatus.user?.picture ? (
+                        <Avatar
+                          src={authStatus.user.picture}
+                          alt={authStatus.user.name || authStatus.user.email}
+                          sx={{ width: 32, height: 32 }}
+                        />
+                      ) : (
+                        <Avatar sx={{ width: 32, height: 32 }}>
+                          <AccountCircleIcon />
+                        </Avatar>
+                      )}
+                    </IconButton>
+                  </Tooltip>
+                  <Menu
+                    anchorEl={anchorEl}
+                    open={Boolean(anchorEl)}
+                    onClose={handleMenuClose}
+                    anchorOrigin={{
+                      vertical: 'bottom',
+                      horizontal: 'right',
+                    }}
+                    transformOrigin={{
+                      vertical: 'top',
+                      horizontal: 'right',
+                    }}
+                  >
+                    <Box sx={{ px: 2, py: 1, minWidth: 200 }}>
+                      <Typography variant="subtitle2" fontWeight={600}>
+                        {authStatus.user?.name || 'User'}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {authStatus.user?.email || ''}
+                      </Typography>
+                    </Box>
+                    <Divider />
+                    <MenuItem onClick={handleLogout}>
+                      <ListItemIcon>
+                        <LogoutIcon fontSize="small" />
+                      </ListItemIcon>
+                      Logout
+                    </MenuItem>
+                  </Menu>
                 </Box>
               </Box>
               {lastUpdated && timezone && (
@@ -302,7 +391,7 @@ function App() {
             {currentTab === 1 && <HistoryTab history={history} loading={loading} />}
 
             {currentTab === 2 && (
-              <SettingsTab setupConfig={setupConfig} onSetupComplete={refreshSetup} />
+              <SettingsTab setupConfig={authStatus.setup} onSetupComplete={refreshSetup} />
             )}
 
             <Snackbar

@@ -8,10 +8,15 @@ import {
   Alert,
   CircularProgress,
   Divider,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
 } from '@mui/material';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import CameraAltIcon from '@mui/icons-material/CameraAlt';
 import LinkOffIcon from '@mui/icons-material/LinkOff';
+import WarningIcon from '@mui/icons-material/Warning';
 
 interface SettingsTabProps {
   setupConfig: {
@@ -30,6 +35,8 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ setupConfig, onSetupCo
   const [firewallIP, setFirewallIP] = useState('');
   const [showCamera, setShowCamera] = useState(false);
   const [qrData, setQrData] = useState<string | null>(null);
+  const [resetDialogOpen, setResetDialogOpen] = useState(false);
+  const [confirmText, setConfirmText] = useState('');
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -218,6 +225,30 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ setupConfig, onSetupCo
     }
   };
 
+  const handleReset = async () => {
+    setLoading(true);
+    setError(null);
+
+    try {
+      const response = await fetch('/api/admin/reset', {
+        method: 'POST',
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || 'Failed to reset settings');
+      }
+
+      // Redirect to root - will show setup wizard
+      window.location.href = '/';
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to reset settings');
+      setResetDialogOpen(false);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const isConnected = setupConfig?.firewallConfigured ?? false;
 
   return (
@@ -358,7 +389,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ setupConfig, onSetupCo
         )}
       </Paper>
 
-      <Paper sx={{ p: 3 }}>
+      <Paper sx={{ p: 3, mb: 2 }}>
         <Typography variant="h6" gutterBottom>
           Account Settings
         </Typography>
@@ -369,6 +400,105 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ setupConfig, onSetupCo
           Email notifications: {setupConfig?.emailConfigured ? 'Enabled' : 'Not configured'}
         </Typography>
       </Paper>
+
+      <Paper
+        sx={{
+          p: 3,
+          borderColor: 'error.main',
+          borderWidth: 2,
+          borderStyle: 'solid',
+        }}
+      >
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+          <WarningIcon color="error" />
+          <Typography variant="h6" color="error">
+            Danger Zone
+          </Typography>
+        </Box>
+
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          Resetting will:
+        </Typography>
+        <Box component="ul" sx={{ pl: 3, mb: 2 }}>
+          <Typography component="li" variant="body2" color="text.secondary">
+            Remove admin account
+          </Typography>
+          <Typography component="li" variant="body2" color="text.secondary">
+            Clear Google OAuth configuration
+          </Typography>
+          <Typography component="li" variant="body2" color="text.secondary">
+            Disconnect from Firewalla
+          </Typography>
+          <Typography component="li" variant="body2" color="text.secondary">
+            Clear email notification settings
+          </Typography>
+          <Typography component="li" variant="body2" color="text.secondary">
+            Delete setup.json
+          </Typography>
+          <Typography component="li" variant="body2" color="text.secondary">
+            Require you to go through setup again
+          </Typography>
+        </Box>
+
+        <Button
+          variant="outlined"
+          color="error"
+          onClick={() => setResetDialogOpen(true)}
+          disabled={loading}
+        >
+          Remove Admin & Reset All Settings
+        </Button>
+      </Paper>
+
+      <Dialog
+        open={resetDialogOpen}
+        onClose={() => {
+          setResetDialogOpen(false);
+          setConfirmText('');
+        }}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>Are you absolutely sure?</DialogTitle>
+        <DialogContent>
+          <Alert severity="warning" sx={{ mb: 2 }}>
+            This action cannot be undone!
+          </Alert>
+          <Typography paragraph>
+            This will completely reset the application to initial setup state. You will be logged
+            out and all configuration will be cleared.
+          </Typography>
+          <Typography sx={{ mt: 2, fontWeight: 'bold' }}>Type "RESET" to confirm:</Typography>
+          <TextField
+            fullWidth
+            value={confirmText}
+            onChange={(e) => setConfirmText(e.target.value)}
+            placeholder="Type RESET here"
+            sx={{ mt: 1 }}
+            disabled={loading}
+            autoFocus
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button
+            onClick={() => {
+              setResetDialogOpen(false);
+              setConfirmText('');
+            }}
+            disabled={loading}
+          >
+            Cancel
+          </Button>
+          <Button
+            color="error"
+            variant="contained"
+            disabled={confirmText !== 'RESET' || loading}
+            onClick={handleReset}
+          >
+            {loading ? <CircularProgress size={24} /> : 'Reset Everything'}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 };
