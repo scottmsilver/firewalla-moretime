@@ -12,6 +12,8 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
+  FormControlLabel,
+  Switch,
 } from '@mui/material';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import CameraAltIcon from '@mui/icons-material/CameraAlt';
@@ -398,6 +400,27 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ setupConfig, onSetupCo
         </Typography>
         <Typography variant="body2" color="text.secondary">
           Email notifications: {setupConfig?.emailConfigured ? 'Enabled' : 'Not configured'}
+        </Typography>
+      </Paper>
+
+      <Paper sx={{ p: 3, mb: 2 }}>
+        <Typography variant="h6" gutterBottom>
+          Developer Settings
+        </Typography>
+        <FormControlLabel
+          control={
+            <Switch
+              checked={localStorage.getItem('debugMode') === 'true'}
+              onChange={(e) => {
+                localStorage.setItem('debugMode', e.target.checked.toString());
+                window.dispatchEvent(new Event('debugModeChanged'));
+              }}
+            />
+          }
+          label="Show Policy IDs (Debug Mode)"
+        />
+        <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+          Enable this to see policy IDs in the policy cards for debugging purposes.
         </Typography>
       </Paper>
 

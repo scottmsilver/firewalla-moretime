@@ -68,6 +68,7 @@ export const PolicyCard: React.FC<PolicyCardProps> = React.memo(({ policy, timez
   const [reason, setReason] = useState('');
   const [loading, setLoading] = useState(false);
   const [currentTime, setCurrentTime] = useState(Date.now());
+  const [debugMode, setDebugMode] = useState(localStorage.getItem('debugMode') === 'true');
 
   const user = policy.users.length > 0 ? policy.users[0].name : 'Unknown';
   const schedule = formatSchedule(policy.cronTime, policy.duration);
@@ -84,6 +85,15 @@ export const PolicyCard: React.FC<PolicyCardProps> = React.memo(({ policy, timez
       return () => clearInterval(timer);
     }
   }, [policy.disabled, policy.idleTs]);
+
+  // Listen for debug mode changes
+  React.useEffect(() => {
+    const handleDebugModeChange = () => {
+      setDebugMode(localStorage.getItem('debugMode') === 'true');
+    };
+    window.addEventListener('debugModeChanged', handleDebugModeChange);
+    return () => window.removeEventListener('debugModeChanged', handleDebugModeChange);
+  }, []);
 
   // Force recalculation when currentTime changes
   const expirationInfo = React.useMemo(() => {
@@ -156,36 +166,36 @@ export const PolicyCard: React.FC<PolicyCardProps> = React.memo(({ policy, timez
             {schedule}
           </Typography>
 
-          {policy.disabled && (
-            <Box sx={{ my: 1, p: 1, bgcolor: 'success.50', borderRadius: 1, border: '1px solid', borderColor: 'success.200' }}>
-              {expirationInfo ? (
-                <>
-                  <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>
-                    Re-enables in {expirationInfo.minutesLeft} min
-                  </Typography>
-                  <Typography variant="body2" color="success.main" fontWeight={500}>
-                    Resumes at {expirationInfo.expiresTimeStr}
-                  </Typography>
-                </>
-              ) : (
-                <Typography variant="body2" color="success.main" fontWeight={500}>
-                  Re-enabling...
-                </Typography>
-              )}
-            </Box>
-          )}
-
           <Box mt={2}>
             {policy.disabled ? (
-              <Button
-                fullWidth
-                variant="outlined"
-                color="success"
-                onClick={handleEnable}
-                disabled={loading}
+              <Box
+                sx={{
+                  p: 1.5,
+                  bgcolor: 'warning.50',
+                  borderRadius: 1,
+                  border: '1px solid',
+                  borderColor: 'warning.200',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 1,
+                }}
               >
-                Resume Now
-              </Button>
+                <Typography variant="body2" color="warning.dark" fontWeight={500} textAlign="center">
+                  {expirationInfo
+                    ? `Resumes at ${expirationInfo.expiresTimeStr} (${expirationInfo.minutesLeft} min)`
+                    : 'Re-enabling...'}
+                </Typography>
+                <Button
+                  fullWidth
+                  size="small"
+                  variant="contained"
+                  color="success"
+                  onClick={handleEnable}
+                  disabled={loading}
+                >
+                  Resume Now
+                </Button>
+              </Box>
             ) : (
               <ButtonGroup fullWidth size="small" variant="outlined">
                 <Button onClick={() => handlePauseClick(1)} disabled={loading}>
@@ -204,9 +214,11 @@ export const PolicyCard: React.FC<PolicyCardProps> = React.memo(({ policy, timez
             )}
           </Box>
 
-          <Typography variant="caption" color="text.disabled" sx={{ display: 'block', mt: 1, fontSize: '0.7rem' }}>
-            ID: {policy.pid}
-          </Typography>
+          {debugMode && (
+            <Typography variant="caption" color="text.disabled" sx={{ display: 'block', mt: 1, fontSize: '0.7rem' }}>
+              ID: {policy.pid}
+            </Typography>
+          )}
         </CardContent>
       </Card>
 
