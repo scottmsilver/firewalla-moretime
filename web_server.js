@@ -11,6 +11,12 @@ import { dirname, join } from 'path';
 import dotenv from 'dotenv';
 import nodemailer from 'nodemailer';
 import fs from 'fs/promises';
+import session from 'express-session';
+import passport from 'passport';
+import { Strategy as GoogleStrategy } from 'passport-google-oauth20';
+import multer from 'multer';
+import QrCode from 'qrcode-reader';
+import { Jimp } from 'jimp';
 
 // Get current directory
 const __filename = fileURLToPath(import.meta.url);
@@ -21,12 +27,59 @@ dotenv.config();
 
 const app = express();
 app.use(express.json());
+
+// Session configuration
+app.use(session({
+    secret: process.env.SESSION_SECRET || 'change-this-secret',
+    resave: false,
+    saveUninitialized: false,
+    cookie: {
+        secure: process.env.NODE_ENV === 'production', // HTTPS only in production
+        maxAge: 24 * 60 * 60 * 1000 // 24 hours
+    }
+}));
+
+// Passport configuration
+app.use(passport.initialize());
+app.use(passport.session());
+
+passport.serializeUser((user, done) => {
+    done(null, user);
+});
+
+passport.deserializeUser((user, done) => {
+    done(null, user);
+});
+
+// Google OAuth Strategy
+if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
+    passport.use(new GoogleStrategy({
+        clientID: process.env.GOOGLE_CLIENT_ID,
+        clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+        callbackURL: `${process.env.WEB_URL || 'http://localhost:3003'}/auth/google/callback`,
+        scope: ['profile', 'email', 'https://www.googleapis.com/auth/gmail.send']
+    }, (accessToken, refreshToken, profile, done) => {
+        // Store user info and tokens
+        const user = {
+            id: profile.id,
+            email: profile.emails[0].value,
+            name: profile.displayName,
+            picture: profile.photos[0]?.value,
+            accessToken,
+            refreshToken
+        };
+        return done(null, user);
+    }));
+}
+
 // Serve React build in production, or proxy to dev server in development
 app.use(express.static(join(__dirname, 'client', 'build')));
 
 const WEB_PORT = process.env.WEB_PORT || 3003;
+const WEB_URL = process.env.WEB_URL || `http://localhost:${WEB_PORT}`;
 const BRIDGE_URL = process.env.BRIDGE_URL || 'http://localhost:3002';
 const LOG_FILE = process.env.LOG_FILE || 'time_extensions.log';
+const SETUP_FILE = join(__dirname, 'setup.json');
 
 // Gmail transporter
 let mailTransporter = null;
@@ -57,6 +110,19 @@ function createMailTransporter() {
 
 mailTransporter = createMailTransporter();
 
+// Configure multer for file uploads
+const upload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
+    fileFilter: (req, file, cb) => {
+        if (file.mimetype.startsWith('image/')) {
+            cb(null, true);
+        } else {
+            cb(new Error('Only image files are allowed'));
+        }
+    }
+});
+
 // Helper function to fetch from bridge
 async function bridgeFetch(path, options = {}) {
     const response = await fetch(`${BRIDGE_URL}${path}`, options);
@@ -66,6 +132,83 @@ async function bridgeFetch(path, options = {}) {
     }
     return response.json();
 }
+
+// Helper: Load setup configuration
+async function loadSetupConfig() {
+    try {
+        const data = await fs.readFile(SETUP_FILE, 'utf-8');
+        return JSON.parse(data);
+    } catch (error) {
+        if (error.code === 'ENOENT') {
+            return {
+                setupComplete: false,
+                adminEmail: '',
+                firewallConfigured: false,
+                emailConfigured: false
+            };
+        }
+        throw error;
+    }
+}
+
+// Helper: Save setup configuration
+async function saveSetupConfig(config) {
+    await fs.writeFile(SETUP_FILE, JSON.stringify(config, null, 2));
+}
+
+// Middleware: Require authentication
+function requireAuth(req, res, next) {
+    if (req.isAuthenticated()) {
+        return next();
+    }
+    res.status(401).json({ error: 'Authentication required' });
+}
+
+// Authentication Routes
+
+// Check auth status
+app.get('/api/auth/status', async (req, res) => {
+    const setup = await loadSetupConfig();
+    res.json({
+        authenticated: req.isAuthenticated(),
+        user: req.user || null,
+        setup: setup
+    });
+});
+
+// Initiate Google OAuth
+app.get('/auth/google',
+    passport.authenticate('google', {
+        scope: ['profile', 'email', 'https://www.googleapis.com/auth/gmail.send'],
+        accessType: 'offline',
+        prompt: 'consent'
+    })
+);
+
+// Google OAuth callback
+app.get('/auth/google/callback',
+    passport.authenticate('google', { failureRedirect: '/' }),
+    async (req, res) => {
+        // Save admin email to setup config
+        const setup = await loadSetupConfig();
+        setup.adminEmail = req.user.email;
+        setup.emailConfigured = !!req.user.refreshToken;
+        await saveSetupConfig(setup);
+
+        // Redirect to home
+        res.redirect('/');
+    }
+);
+
+// Logout
+app.post('/api/auth/logout', (req, res) => {
+    req.logout((err) => {
+        if (err) {
+            return res.status(500).json({ error: 'Logout failed' });
+        }
+        res.json({ success: true });
+    });
+});
 
 // API Routes
 
@@ -113,13 +256,15 @@ app.get('/api/policies', async (req, res) => {
                     disabled: p.disabled === "1",
                     hitCount: parseInt(p.hitCount || 0),
                     activatedTime: p.activatedTime ? parseInt(p.activatedTime) : null,
-                    expire: p.expire ? parseInt(p.expire) : null
+                    expire: p.expire ? parseInt(p.expire) : null,
+                    idleTs: p.idleTs ? parseInt(p.idleTs) : null
                 };
             });
 
         res.json({
             policies: timePolicies,
-            serverTime: new Date().toISOString()
+            serverTime: new Date().toISOString(),
+            timezone: data.timezone || 'UTC' // Include Firewalla's timezone
         });
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -276,6 +421,124 @@ app.post('/api/test-email', async (req, res) => {
         });
         res.json({ success: true, message: 'Test email sent successfully' });
     } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Firewalla Connection Management Routes
+
+// Upload and parse QR code
+app.post('/api/firewalla/qr-upload', requireAuth, upload.single('qrImage'), async (req, res) => {
+    try {
+        if (!req.file) {
+            return res.status(400).json({ error: 'No image file provided' });
+        }
+
+        // Read image with Jimp
+        const image = await Jimp.read(req.file.buffer);
+
+        // Decode QR code
+        const qrReader = new QrCode();
+
+        const qrData = await new Promise((resolve, reject) => {
+            qrReader.callback = (err, value) => {
+                if (err) {
+                    reject(err);
+                } else {
+                    resolve(value.result);
+                }
+            };
+            qrReader.decode(image.bitmap);
+        });
+
+        res.json({ success: true, qrData });
+    } catch (error) {
+        console.error('QR code parsing error:', error);
+        res.status(400).json({ error: 'Failed to parse QR code. Please ensure the image contains a valid QR code.' });
+    }
+});
+
+// Connect to Firewalla
+app.post('/api/firewalla/connect', requireAuth, async (req, res) => {
+    try {
+        const { qrData, firewallIP } = req.body;
+
+        if (!qrData || !firewallIP) {
+            return res.status(400).json({ error: 'QR data and Firewalla IP are required' });
+        }
+
+        // Parse QR data (expected format: JSON with ETP keys)
+        let qrJson;
+        try {
+            qrJson = JSON.parse(qrData);
+        } catch (parseError) {
+            return res.status(400).json({ error: 'Invalid QR code format. Expected JSON data.' });
+        }
+
+        // Extract ETP keys from QR data
+        if (!qrJson.publicKey || !qrJson.privateKey) {
+            return res.status(400).json({ error: 'QR code missing required keys (publicKey, privateKey)' });
+        }
+
+        // Save ETP keys to files
+        const publicKeyPath = join(__dirname, 'etp.public.pem');
+        const privateKeyPath = join(__dirname, 'etp.private.pem');
+
+        await fs.writeFile(publicKeyPath, qrJson.publicKey);
+        await fs.writeFile(privateKeyPath, qrJson.privateKey);
+
+        // Update .env file with Firewalla IP
+        const envPath = join(__dirname, '.env');
+        let envContent = await fs.readFile(envPath, 'utf-8').catch(() => '');
+
+        // Update or add FIREWALLA_IP
+        if (envContent.includes('FIREWALLA_IP=')) {
+            envContent = envContent.replace(/FIREWALLA_IP=.*/g, `FIREWALLA_IP=${firewallIP}`);
+        } else {
+            envContent += `\nFIREWALLA_IP=${firewallIP}\n`;
+        }
+
+        await fs.writeFile(envPath, envContent);
+
+        // Update setup configuration
+        const setup = await loadSetupConfig();
+        setup.firewallConfigured = true;
+        await saveSetupConfig(setup);
+
+        // Notify user to restart the bridge
+        res.json({
+            success: true,
+            message: 'Firewalla connection configured. Please restart the bridge server to connect.',
+            requiresRestart: true
+        });
+    } catch (error) {
+        console.error('Firewalla connection error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Disconnect from Firewalla
+app.post('/api/firewalla/disconnect', requireAuth, async (req, res) => {
+    try {
+        // Remove ETP key files
+        const publicKeyPath = join(__dirname, 'etp.public.pem');
+        const privateKeyPath = join(__dirname, 'etp.private.pem');
+
+        await fs.unlink(publicKeyPath).catch(() => {});
+        await fs.unlink(privateKeyPath).catch(() => {});
+
+        // Update setup configuration
+        const setup = await loadSetupConfig();
+        setup.firewallConfigured = false;
+        await saveSetupConfig(setup);
+
+        res.json({
+            success: true,
+            message: 'Disconnected from Firewalla',
+            requiresRestart: true
+        });
+    } catch (error) {
+        console.error('Disconnect error:', error);
         res.status(500).json({ error: error.message });
     }
 });

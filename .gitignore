@@ -38,6 +38,9 @@ client/.env.production.local
 *.log
 time_extensions.log
 
+# Setup configuration
+setup.json
+
 # OS files
 .DS_Store
 .DS_Store?

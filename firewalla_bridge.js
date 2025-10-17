@@ -160,20 +160,33 @@ app.post('/api/policy/:pid/pause', ensureInitialized, async (req, res) => {
             return res.status(404).json({ error: `Policy ${pid} not found` });
         }
 
-        // Set disabled and expire fields
-        policy.disabled = "1";
-        policy.expire = (minutes * 60).toString(); // Convert minutes to seconds
-        policy.activatedTime = Math.floor(Date.now() / 1000).toString(); // Current time
+        // Set disabled and idleTs fields
+        // idleTs is the timestamp when the policy should be re-enabled
+        const idleTs = Math.floor(Date.now() / 1000) + (minutes * 60);
 
-        const msg = new FWCmdMessage("policy:update", policy);
+        // Create minimal update object with only required fields
+        const policyUpdate = {
+            pid: policy.pid,
+            disabled: 1,
+            idleTs: idleTs
+        };
+
+        const msg = new FWCmdMessage("policy:update", policyUpdate);
         const response = await FWGroupApi.sendMessageToBox(fwGroup, msg);
+
+        // Wait a moment for Firewalla to process the update
+        await new Promise(resolve => setTimeout(resolve, 100));
+
+        // Fetch the updated policy
+        let updatedData = await initService.init();
+        let updatedPolicy = updatedData.policyRules.find(p => p.pid === pid);
 
         res.json({
             success: true,
             message: `Policy ${pid} paused for ${minutes} minutes`,
             expiresAt: new Date(Date.now() + minutes * 60 * 1000).toISOString(),
             response,
-            policy
+            policy: updatedPolicy
         });
     } catch (err) {
         res.status(500).json({ error: err.message, stack: err.stack });

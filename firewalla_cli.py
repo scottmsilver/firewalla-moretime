@@ -157,6 +157,8 @@ def list_policies(bridge: FirewallaBridge, by_user: bool = False):
                 cron_time = policy.get("cronTime", "")
                 disabled = policy.get("disabled", "0") == "1"
                 hit_count = policy.get("hitCount", "0")
+                activated_time = policy.get("activatedTime")
+                expire = policy.get("expire")
 
                 status = "DISABLED" if disabled else "ACTIVE"
 
@@ -165,6 +167,24 @@ def list_policies(bridge: FirewallaBridge, by_user: bool = False):
                 print(f"     Action: {action}")
                 print(f"     Schedule: Blocks at {parse_cron_time(cron_time)} for {format_duration(duration)}")
                 print(f"     Times triggered: {hit_count}")
+
+                # Show unpause time if currently paused
+                if disabled and activated_time and expire:
+                    try:
+                        activated_ts = int(activated_time)
+                        expire_sec = int(expire)
+                        unpause_ts = activated_ts + expire_sec
+                        unpause_time = datetime.fromtimestamp(unpause_ts)
+                        now = datetime.now()
+
+                        if unpause_time > now:
+                            minutes_left = int((unpause_time - now).total_seconds() / 60)
+                            print(
+                                f"     ⏰ Will re-enable at {unpause_time.strftime('%I:%M%p').lower()} ({minutes_left} min left)"
+                            )
+                    except (ValueError, OSError):
+                        pass
+
                 print()
     else:
         # Show all policies with user info
@@ -180,6 +200,8 @@ def list_policies(bridge: FirewallaBridge, by_user: bool = False):
             cron_time = policy.get("cronTime", "")
             disabled = policy.get("disabled", "0") == "1"
             hit_count = policy.get("hitCount", "0")
+            activated_time = policy.get("activatedTime")
+            expire = policy.get("expire")
 
             status = "DISABLED" if disabled else "ACTIVE"
 
@@ -197,6 +219,24 @@ def list_policies(bridge: FirewallaBridge, by_user: bool = False):
             print(f"  Action: {action}")
             print(f"  Schedule: Blocks at {parse_cron_time(cron_time)} for {format_duration(duration)}")
             print(f"  Times triggered: {hit_count}")
+
+            # Show unpause time if currently paused
+            if disabled and activated_time and expire:
+                try:
+                    activated_ts = int(activated_time)
+                    expire_sec = int(expire)
+                    unpause_ts = activated_ts + expire_sec
+                    unpause_time = datetime.fromtimestamp(unpause_ts)
+                    now = datetime.now()
+
+                    if unpause_time > now:
+                        minutes_left = int((unpause_time - now).total_seconds() / 60)
+                        print(
+                            f"  ⏰ Will re-enable at {unpause_time.strftime('%I:%M%p').lower()} ({minutes_left} min left)"
+                        )
+                except (ValueError, OSError):
+                    pass
+
             print()
 
 

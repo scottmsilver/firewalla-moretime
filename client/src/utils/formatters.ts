@@ -1,10 +1,24 @@
-export const formatTime = (date: Date): string => {
-  return date.toLocaleTimeString('en-US', {
-    hour: 'numeric',
-    minute: '2-digit',
-    hour12: true,
-    timeZoneName: 'short',
-  });
+export const formatTime = (date: Date, timezone?: string): string => {
+  // Always use the timezone if provided, otherwise format in browser's local timezone
+  try {
+    const formatted = date.toLocaleTimeString('en-US', {
+      timeZone: timezone || undefined, // Use undefined to let browser use local timezone
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+    });
+    // Convert "10:30 AM" to "10:30a"
+    return formatted.replace(' AM', 'a').replace(' PM', 'p');
+  } catch (error) {
+    console.error('Error formatting time:', error, 'timezone:', timezone);
+    // Fallback to simple formatting
+    const hour = date.getHours();
+    const minute = date.getMinutes();
+    const hour12 = hour % 12 || 12;
+    const ampm = hour >= 12 ? 'p' : 'a';
+    const minuteStr = minute.toString().padStart(2, '0');
+    return `${hour12}:${minuteStr}${ampm}`;
+  }
 };
 
 export const formatDateTime = (date: Date): string => {
@@ -27,6 +41,7 @@ export const formatSchedule = (cronTime: string, duration: number): string => {
   const minute = parseInt(parts[0]);
   const hour24 = parseInt(parts[1]);
 
+  // cronTime is already in Firewalla's local timezone, just format it nicely
   // Convert to 12-hour format
   const hour12 = hour24 % 12 || 12;
   const ampm = hour24 >= 12 ? 'p' : 'a';
@@ -68,12 +83,12 @@ export const formatSchedule = (cronTime: string, duration: number): string => {
 };
 
 export const calculateExpirationInfo = (
-  activatedTime: number,
-  expire: number
+  idleTs: number | null,
+  timezone?: string
 ): { minutesLeft: number; expiresAt: Date; expiresTimeStr: string } | null => {
-  if (!activatedTime || !expire) return null;
+  if (!idleTs) return null;
 
-  const expiresAt = new Date((activatedTime + expire) * 1000);
+  const expiresAt = new Date(idleTs * 1000);
   const now = Date.now();
   const minutesLeft = Math.ceil((expiresAt.getTime() - now) / 60000);
 
@@ -82,6 +97,6 @@ export const calculateExpirationInfo = (
   return {
     minutesLeft,
     expiresAt,
-    expiresTimeStr: formatTime(expiresAt),
+    expiresTimeStr: formatTime(expiresAt, timezone),
   };
 };

@@ -15,6 +15,13 @@ export interface Policy {
   hitCount: number;
   activatedTime: number | null;
   expire: number | null;
+  idleTs: number | null;
+}
+
+export interface PoliciesResponse {
+  policies: Policy[];
+  serverTime: string;
+  timezone: string;
 }
 
 export interface HistoryEntry {

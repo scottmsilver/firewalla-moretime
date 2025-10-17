@@ -1,11 +1,11 @@
-import { Policy, HistoryEntry } from '../types';
+import { Policy, HistoryEntry, PoliciesResponse } from '../types';
 
 export const api = {
-  async getPolicies(): Promise<{ policies: Policy[]; serverTime: string }> {
+  async getPolicies(): Promise<PoliciesResponse> {
     const response = await fetch('/api/policies');
     if (!response.ok) throw new Error('Failed to fetch policies');
     const data = await response.json();
-    return { policies: data.policies, serverTime: data.serverTime };
+    return { policies: data.policies, serverTime: data.serverTime, timezone: data.timezone };
   },
 
   async pausePolicy(pid: string, minutes: number, reason: string): Promise<{ expiresAt: string }> {

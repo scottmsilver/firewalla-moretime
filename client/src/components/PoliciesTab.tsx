@@ -6,6 +6,7 @@ import { PolicyCard } from './PolicyCard';
 interface PoliciesTabProps {
   policies: Policy[];
   loading: boolean;
+  timezone: string;
   onPause: (pid: string, minutes: number, reason: string) => Promise<void>;
   onEnable: (pid: string) => Promise<void>;
 }
@@ -13,6 +14,7 @@ interface PoliciesTabProps {
 export const PoliciesTab: React.FC<PoliciesTabProps> = ({
   policies,
   loading,
+  timezone,
   onPause,
   onEnable,
 }) => {
@@ -45,7 +47,7 @@ export const PoliciesTab: React.FC<PoliciesTabProps> = ({
       }}
     >
       {policies.map((policy) => (
-        <PolicyCard key={policy.pid} policy={policy} onPause={onPause} onEnable={onEnable} />
+        <PolicyCard key={policy.pid} policy={policy} timezone={timezone} onPause={onPause} onEnable={onEnable} />
       ))}
     </Box>
   );
