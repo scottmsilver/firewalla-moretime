@@ -12,6 +12,7 @@ import {
   DialogContent,
   DialogActions,
   TextField,
+  CircularProgress,
 } from '@mui/material';
 import { Policy } from '../types';
 import { formatSchedule, calculateExpirationInfo } from '../utils/formatters';
@@ -69,6 +70,7 @@ export const PolicyCard: React.FC<PolicyCardProps> = React.memo(({ policy, timez
   const [loading, setLoading] = useState(false);
   const [currentTime, setCurrentTime] = useState(Date.now());
   const [debugMode, setDebugMode] = useState(localStorage.getItem('debugMode') === 'true');
+  const reasonInputRef = React.useRef<HTMLInputElement>(null);
 
   const user = policy.users.length > 0 ? policy.users[0].name : 'Unknown';
   const schedule = formatSchedule(policy.cronTime, policy.duration);
@@ -94,6 +96,16 @@ export const PolicyCard: React.FC<PolicyCardProps> = React.memo(({ policy, timez
     window.addEventListener('debugModeChanged', handleDebugModeChange);
     return () => window.removeEventListener('debugModeChanged', handleDebugModeChange);
   }, []);
+
+  // Focus the reason input when dialog opens
+  React.useEffect(() => {
+    if (dialogOpen && reasonInputRef.current) {
+      // Small delay to ensure dialog animation completes
+      setTimeout(() => {
+        reasonInputRef.current?.focus();
+      }, 100);
+    }
+  }, [dialogOpen]);
 
   // Force recalculation when currentTime changes
   const expirationInfo = React.useMemo(() => {
@@ -222,10 +234,22 @@ export const PolicyCard: React.FC<PolicyCardProps> = React.memo(({ policy, timez
         </CardContent>
       </Card>
 
-      <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} maxWidth="sm" fullWidth>
+      <Dialog
+        open={dialogOpen}
+        onClose={() => setDialogOpen(false)}
+        maxWidth="sm"
+        fullWidth
+        TransitionProps={{
+          onEntered: () => {
+            // Focus after dialog transition completes
+            reasonInputRef.current?.focus();
+          }
+        }}
+      >
         <DialogTitle>Pause for {selectedMinutes} {selectedMinutes === 1 ? 'minute' : 'minutes'}</DialogTitle>
         <DialogContent>
           <TextField
+            inputRef={reasonInputRef}
             autoFocus
             margin="dense"
             label="Reason"
@@ -238,13 +262,29 @@ export const PolicyCard: React.FC<PolicyCardProps> = React.memo(({ policy, timez
           />
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setDialogOpen(false)}>Cancel</Button>
+          <Button onClick={() => setDialogOpen(false)} disabled={loading}>
+            Cancel
+          </Button>
           <Button
             onClick={handleConfirmPause}
             variant="contained"
-            disabled={!reason.trim() || loading}
+            disabled={!reason.trim()}
+            sx={{ position: 'relative' }}
           >
             Confirm
+            {loading && (
+              <CircularProgress
+                size={24}
+                color="inherit"
+                sx={{
+                  position: 'absolute',
+                  top: '50%',
+                  left: '50%',
+                  marginTop: '-12px',
+                  marginLeft: '-12px',
+                }}
+              />
+            )}
           </Button>
         </DialogActions>
       </Dialog>

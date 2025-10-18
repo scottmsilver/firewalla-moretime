@@ -31,6 +31,7 @@ import { SetupWizard } from './components/SetupWizard';
 import { Policy, HistoryEntry, AuthStatus } from './types';
 import { api } from './services/api';
 import { formatTime } from './utils/formatters';
+import logo from './assets/logo.svg';
 
 const theme = createTheme({
   palette: {
@@ -312,17 +313,39 @@ function App() {
       {authStatus && authStatus.oauthConfigured && authStatus.authenticated && (
         <Box sx={{ bgcolor: '#f8f9fa', minHeight: '100vh', py: 3 }}>
           <Container maxWidth="lg">
-            <Paper sx={{ p: 2, mb: 1 }}>
+            <Paper sx={{ p: 2, mb: 2 }}>
               <Box display="flex" justifyContent="space-between" alignItems="center">
-                <Box>
-                  <Typography variant="h5" component="h1" fontWeight={600}>
-                    More Time
-                  </Typography>
-                  <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem' }}>
-                    v1.0.9
-                  </Typography>
+                <Box display="flex" alignItems="center" gap={1.5}>
+                  <img src={logo} alt="More Time Logo" style={{ width: 40, height: 40 }} />
+                  <Box display="flex" alignItems="baseline" gap={1}>
+                    <Typography variant="h5" component="h1" fontWeight={600}>
+                      More Time
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem' }}>
+                      v1.0.9
+                    </Typography>
+                  </Box>
                 </Box>
-                <Box display="flex" alignItems="center" gap={1}>
+                <Box display="flex" alignItems="center" gap={2}>
+                  <Tabs
+                    value={currentTab}
+                    onChange={handleTabChange}
+                    sx={{
+                      minHeight: 'auto',
+                      '& .MuiTab-root': {
+                        minHeight: 'auto',
+                        py: 1,
+                        px: 2,
+                        fontSize: '0.875rem',
+                        textTransform: 'none',
+                        fontWeight: 500,
+                      }
+                    }}
+                  >
+                    <Tab label="Schedules" />
+                    <Tab label="History" />
+                    <Tab label="Settings" />
+                  </Tabs>
                   <Tooltip title="Account">
                     <IconButton onClick={handleMenuOpen} size="small">
                       {authStatus.user?.picture ? (
@@ -370,7 +393,7 @@ function App() {
                 </Box>
               </Box>
               {lastUpdated && timezone && (
-                <Box display="flex" alignItems="center" gap={0.5} mt={0.5}>
+                <Box display="flex" alignItems="center" gap={0.5} mt={1}>
                   <Typography variant="caption" color="text.secondary">
                     Last updated: {formatTime(lastUpdated, timezone)} • {policies.length}{' '}
                     {policies.length === 1 ? 'schedule' : 'schedules'}
@@ -404,14 +427,6 @@ function App() {
                 </Box>
               )}
             </Paper>
-
-            <Box sx={{ mb: 2 }}>
-              <Tabs value={currentTab} onChange={handleTabChange}>
-                <Tab label="Schedules" />
-                <Tab label="History" />
-                <Tab label="Settings" />
-              </Tabs>
-            </Box>
 
             {currentTab === 0 && !authStatus.setup.firewallConfigured && (
               <Paper sx={{ p: 4, textAlign: 'center' }}>
