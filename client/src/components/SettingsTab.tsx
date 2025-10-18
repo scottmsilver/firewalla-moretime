@@ -26,6 +26,7 @@ interface SettingsTabProps {
     adminEmail: string;
     firewallConfigured: boolean;
     emailConfigured: boolean;
+    notificationEmail?: string;
     firewallInfo?: {
       gid: string;
       model: string;
@@ -50,6 +51,8 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ setupConfig, onSetupCo
   const [disconnectDialogOpen, setDisconnectDialogOpen] = useState(false);
   const [confirmText, setConfirmText] = useState('');
   const [bridgeStatus, setBridgeStatus] = useState<'checking' | 'connected' | 'disconnected'>('checking');
+  const [notificationEmail, setNotificationEmail] = useState(setupConfig?.notificationEmail || '');
+  const [emailSaving, setEmailSaving] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -83,6 +86,11 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ setupConfig, onSetupCo
     const interval = setInterval(checkBridgeHealth, 30000);
     return () => clearInterval(interval);
   }, [setupConfig?.firewallConfigured]);
+
+  // Update notification email state when setup config changes
+  React.useEffect(() => {
+    setNotificationEmail(setupConfig?.notificationEmail || '');
+  }, [setupConfig?.notificationEmail]);
 
   const handleDisconnect = async () => {
     setLoading(true);
@@ -341,6 +349,34 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ setupConfig, onSetupCo
       setResetDialogOpen(false);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleSaveNotificationEmail = async () => {
+    setEmailSaving(true);
+    setError(null);
+    setSuccess(null);
+
+    try {
+      const response = await fetch('/api/settings/notification-email', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ email: notificationEmail }),
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || 'Failed to save notification email');
+      }
+
+      setSuccess('Notification email saved successfully!');
+      onSetupComplete(); // Refresh setup config
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save notification email');
+    } finally {
+      setEmailSaving(false);
     }
   };
 
@@ -615,9 +651,51 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ setupConfig, onSetupCo
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
           Admin: {setupConfig?.adminEmail || 'Not configured'}
         </Typography>
-        <Typography variant="body2" color="text.secondary">
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
           Email notifications: {setupConfig?.emailConfigured ? 'Enabled' : 'Not configured'}
         </Typography>
+
+        <Divider sx={{ my: 2 }} />
+
+        <Typography variant="subtitle2" gutterBottom>
+          Notification Email
+        </Typography>
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+          Receive email notifications when schedules are paused
+        </Typography>
+        <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-start' }}>
+          <TextField
+            label="Email Address"
+            type="email"
+            value={notificationEmail}
+            onChange={(e) => setNotificationEmail(e.target.value)}
+            placeholder="email@example.com"
+            size="small"
+            sx={{ flex: 1 }}
+            disabled={emailSaving}
+          />
+          <Button
+            variant="contained"
+            onClick={handleSaveNotificationEmail}
+            disabled={emailSaving || !notificationEmail.trim()}
+            sx={{ position: 'relative', minWidth: 80 }}
+          >
+            Save
+            {emailSaving && (
+              <CircularProgress
+                size={24}
+                color="inherit"
+                sx={{
+                  position: 'absolute',
+                  top: '50%',
+                  left: '50%',
+                  marginTop: '-12px',
+                  marginLeft: '-12px',
+                }}
+              />
+            )}
+          </Button>
+        </Box>
       </Paper>
 
       <Paper sx={{ p: 3, mb: 2 }}>

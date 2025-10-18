@@ -67,3 +67,7 @@ Screenshot_*
 STATUS.md
 FINAL_STATUS.md
 *_PLAN.md
+QR_CODE_STATUS.md
+
+# Client environment files
+client/.env

@@ -6,7 +6,9 @@ import {
   Card,
   CardContent,
   Divider,
+  Chip,
 } from '@mui/material';
+import EmailIcon from '@mui/icons-material/Email';
 import { HistoryEntry } from '../types';
 import { formatDateTime } from '../utils/formatters';
 
@@ -38,10 +40,20 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({ history, loading }) => {
         {history.map((entry, index) => (
           <React.Fragment key={`${entry.timestamp}-${index}`}>
             <Box py={2}>
-              <Box display="flex" justifyContent="space-between" mb={1}>
+              <Box display="flex" justifyContent="space-between" alignItems="center" mb={1}>
                 <Typography variant="body2" color="text.secondary">
                   {formatDateTime(new Date(entry.timestamp))}
                 </Typography>
+                {entry.emailSent && (
+                  <Chip
+                    icon={<EmailIcon />}
+                    label="Email sent"
+                    size="small"
+                    color="success"
+                    variant="outlined"
+                    sx={{ fontSize: '0.7rem', height: 24 }}
+                  />
+                )}
               </Box>
               <Typography variant="body1" fontWeight={600}>
                 Schedule {entry.policy_id} ({entry.tags.join(', ')})

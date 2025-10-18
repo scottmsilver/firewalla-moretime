@@ -32,6 +32,8 @@ export interface HistoryEntry {
   duration_minutes: number;
   reason?: string;
   expires_at: string;
+  emailSent?: boolean;
+  emailTo?: string;
 }
 
 export interface SetupConfig {

@@ -432,6 +432,47 @@ app.post('/api/admin/reset', requireAuth, async (req, res) => {
     }
 });
 
+// Save notification email
+app.post('/api/settings/notification-email', requireAuth, async (req, res) => {
+    try {
+        const { email } = req.body;
+
+        if (!email || !email.trim()) {
+            return res.status(400).json({ error: 'Email address is required' });
+        }
+
+        // Basic email validation
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(email.trim())) {
+            return res.status(400).json({ error: 'Invalid email address format' });
+        }
+
+        // Update setup.json with notification email
+        const setup = await loadSetupConfig();
+        setup.notificationEmail = email.trim();
+        await saveSetupConfig(setup);
+
+        // Also update .env file's NOTIFY_EMAIL for immediate use
+        await updateEnvFile({
+            NOTIFY_EMAIL: email.trim()
+        });
+
+        // Reload config to pick up the new email
+        await reloadConfig();
+
+        console.log('✅ Notification email saved:', email.trim());
+
+        res.json({
+            success: true,
+            message: 'Notification email saved successfully',
+            email: email.trim()
+        });
+    } catch (error) {
+        console.error('Error saving notification email:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // API Routes
 
 // Get all policies with users
@@ -552,14 +593,8 @@ app.post('/api/policies/:pid/pause', async (req, res) => {
             }
         }
 
-        // Write to log file
-        try {
-            await fs.appendFile(config.LOG_FILE, JSON.stringify(logEntry) + '\n');
-        } catch (logError) {
-            console.error('Failed to write to log file:', logError.message);
-        }
-
         // Send email notification
+        let emailSent = false;
         if (mailTransporter && config.NOTIFY_EMAIL) {
             try {
                 await mailTransporter.sendMail({
@@ -578,10 +613,24 @@ app.post('/api/policies/:pid/pause', async (req, res) => {
                         <p><em>This policy will automatically re-enable after ${minutes} minutes.</em></p>
                     `
                 });
+                emailSent = true;
                 console.log(`✉️  Email sent to ${config.NOTIFY_EMAIL}`);
             } catch (emailError) {
                 console.error('Failed to send email:', emailError.message);
             }
+        }
+
+        // Add email sent status to log entry
+        logEntry.emailSent = emailSent;
+        if (emailSent) {
+            logEntry.emailTo = config.NOTIFY_EMAIL;
+        }
+
+        // Write to log file
+        try {
+            await fs.appendFile(config.LOG_FILE, JSON.stringify(logEntry) + '\n');
+        } catch (logError) {
+            console.error('Failed to write to log file:', logError.message);
         }
 
         res.json(result);

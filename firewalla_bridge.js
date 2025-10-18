@@ -9,7 +9,7 @@ const app = express();
 app.use(express.json());
 
 const PORT = process.env.PORT || 3002;
-const FIREWALLA_IP = process.env.FIREWALLA_IP || '192.168.1.129';
+const FIREWALLA_IP = process.env.FIREWALLA_IP || '192.168.1.1';
 const EMAIL = process.env.EMAIL || 'api@firewalla.local';
 const ETP_PUBLIC_KEY = process.env.ETP_PUBLIC_KEY || 'etp.public.pem';
 const ETP_PRIVATE_KEY = process.env.ETP_PRIVATE_KEY || 'etp.private.pem';
