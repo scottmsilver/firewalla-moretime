@@ -5,14 +5,10 @@
   "main": "setup_firewalla_api.js",
   "scripts": {
     "test": "node test/qr_validation.test.js",
-    "test:qr": "node test_qr_parser.js",
-    "test:qr-file": "node test_qr_parser.js",
+    "test:qr": "node test/test_qr_parser.js",
     "test:connection": "node test/qr_connection.test.js",
-    "dev:bridge": "nodemon firewalla_bridge.js",
-    "dev:web": "nodemon web_server.js",
-    "dev:all": "nodemon --ext js --watch . --exec 'node firewalla_bridge.js & node web_server.js'",
-    "start:bridge": "node firewalla_bridge.js",
-    "start:web": "node web_server.js"
+    "dev": "nodemon web_server.js",
+    "start": "node web_server.js"
   },
   "keywords": [],
   "author": "",

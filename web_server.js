@@ -17,6 +17,7 @@ import multer from 'multer';
 import jsQR from 'jsqr';
 import { Jimp } from 'jimp';
 import { google } from 'googleapis';
+import { SecureUtil, FWGroupApi, FWGroup, InitService, NetworkService, FWCmdMessage } from 'node-firewalla';
 
 // Get current directory
 const __filename = fileURLToPath(import.meta.url);
@@ -36,7 +37,6 @@ const ENV_FILE = join(__dirname, '.env');
 let config = {
     WEB_PORT: process.env.WEB_PORT || 3003,
     WEB_URL: process.env.WEB_URL || `http://localhost:${process.env.WEB_PORT || 3003}`,
-    BRIDGE_URL: process.env.BRIDGE_URL || 'http://localhost:3002',
     LOG_FILE: process.env.LOG_FILE || 'time_extensions.log',
     GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID || '',
     GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET || '',
@@ -45,11 +45,123 @@ let config = {
     GMAIL_CLIENT_ID: process.env.GMAIL_CLIENT_ID || '',
     GMAIL_CLIENT_SECRET: process.env.GMAIL_CLIENT_SECRET || '',
     GMAIL_REFRESH_TOKEN: process.env.GMAIL_REFRESH_TOKEN || '',
-    NOTIFY_EMAIL: process.env.NOTIFY_EMAIL || ''
+    NOTIFY_EMAIL: process.env.NOTIFY_EMAIL || '',
+    FIREWALLA_IP: process.env.FIREWALLA_IP || '192.168.1.1',
+    EMAIL: process.env.EMAIL || 'api@firewalla.local',
+    ETP_PUBLIC_KEY: process.env.ETP_PUBLIC_KEY || 'etp.public.pem',
+    ETP_PRIVATE_KEY: process.env.ETP_PRIVATE_KEY || 'etp.private.pem'
 };
 
 // Gmail API client (reloadable)
 let gmailClient = null;
+
+// Firewalla Client Class
+class FirewallaClient {
+    constructor() {
+        this.fwGroup = null;
+    }
+
+    async initialize() {
+        try {
+            console.log('Loading ETP keys...');
+            SecureUtil.importKeyPair(config.ETP_PUBLIC_KEY, config.ETP_PRIVATE_KEY);
+
+            console.log('Logging in to Firewalla...');
+            let { groups } = await FWGroupApi.login(config.EMAIL);
+            this.fwGroup = FWGroup.fromJson(groups[0], config.FIREWALLA_IP);
+
+            console.log('Testing connection...');
+            let networkService = new NetworkService(this.fwGroup);
+            await networkService.ping();
+
+            console.log('✓ Connected to Firewalla successfully!');
+            return true;
+        } catch (err) {
+            console.error('Failed to initialize Firewalla:', err);
+            return false;
+        }
+    }
+
+    isConnected() {
+        return this.fwGroup !== null;
+    }
+
+    ensureConnected() {
+        if (!this.fwGroup) {
+            throw new Error('Not connected to Firewalla');
+        }
+    }
+
+    async getInitData() {
+        this.ensureConnected();
+        let initService = new InitService(this.fwGroup);
+        return await initService.init();
+    }
+
+    async pausePolicy(pid, minutes) {
+        this.ensureConnected();
+
+        // Get current policy
+        let data = await this.getInitData();
+        let policy = data.policyRules?.find(p => p.pid === pid);
+
+        if (!policy) {
+            throw new Error(`Policy ${pid} not found`);
+        }
+
+        // Set disabled and idleTs fields
+        const idleTs = Math.floor(Date.now() / 1000) + (minutes * 60);
+
+        const policyUpdate = {
+            pid: policy.pid,
+            disabled: 1,
+            idleTs: idleTs
+        };
+
+        const msg = new FWCmdMessage("policy:update", policyUpdate);
+        const response = await FWGroupApi.sendMessageToBox(this.fwGroup, msg);
+
+        // Wait for Firewalla to process
+        await new Promise(resolve => setTimeout(resolve, 100));
+
+        // Fetch updated policy
+        let initService = new InitService(this.fwGroup);
+        let updatedData = await initService.init();
+        let updatedPolicy = updatedData.policyRules.find(p => p.pid === pid);
+
+        return {
+            success: true,
+            message: `Policy ${pid} paused for ${minutes} minutes`,
+            expiresAt: new Date(Date.now() + minutes * 60 * 1000).toISOString(),
+            response,
+            policy: updatedPolicy
+        };
+    }
+
+    async enablePolicy(pid) {
+        this.ensureConnected();
+
+        const msg = new FWCmdMessage("policy:enable", { policyID: pid });
+        const response = await FWGroupApi.sendMessageToBox(this.fwGroup, msg);
+
+        return { success: true, response };
+    }
+
+    getStatus() {
+        return {
+            status: this.fwGroup ? 'connected' : 'disconnected',
+            firewalla_ip: config.FIREWALLA_IP
+        };
+    }
+
+    async reload() {
+        console.log('Reloading Firewalla credentials...');
+        return await this.initialize();
+    }
+}
+
+// Create Firewalla client instance
+let firewalla = new FirewallaClient();
 
 // Helper: Reload environment variables from .env file
 async function reloadEnv() {
@@ -76,7 +188,6 @@ async function reloadEnv() {
         config = {
             WEB_PORT: process.env.WEB_PORT || 3003,
             WEB_URL: process.env.WEB_URL || `http://localhost:${process.env.WEB_PORT || 3003}`,
-            BRIDGE_URL: process.env.BRIDGE_URL || 'http://localhost:3002',
             LOG_FILE: process.env.LOG_FILE || 'time_extensions.log',
             GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID || '',
             GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET || '',
@@ -85,7 +196,11 @@ async function reloadEnv() {
             GMAIL_CLIENT_ID: process.env.GMAIL_CLIENT_ID || '',
             GMAIL_CLIENT_SECRET: process.env.GMAIL_CLIENT_SECRET || '',
             GMAIL_REFRESH_TOKEN: process.env.GMAIL_REFRESH_TOKEN || '',
-            NOTIFY_EMAIL: process.env.NOTIFY_EMAIL || ''
+            NOTIFY_EMAIL: process.env.NOTIFY_EMAIL || '',
+            FIREWALLA_IP: process.env.FIREWALLA_IP || '192.168.1.1',
+            EMAIL: process.env.EMAIL || 'api@firewalla.local',
+            ETP_PUBLIC_KEY: process.env.ETP_PUBLIC_KEY || 'etp.public.pem',
+            ETP_PRIVATE_KEY: process.env.ETP_PRIVATE_KEY || 'etp.private.pem'
         };
 
         console.log('✅ Configuration reloaded from .env');
@@ -229,6 +344,7 @@ async function reloadConfig() {
     await reloadEnv();
     reinitializeGoogleStrategy();
     gmailClient = createGmailClient();
+    await firewalla.reload();
     return true;
 }
 
@@ -305,15 +421,6 @@ const upload = multer({
     }
 });
 
-// Helper function to fetch from bridge
-async function bridgeFetch(path, options = {}) {
-    const response = await fetch(`${config.BRIDGE_URL}${path}`, options);
-    if (!response.ok) {
-        const error = await response.json().catch(() => ({ error: response.statusText }));
-        throw new Error(error.error || 'Bridge request failed');
-    }
-    return response.json();
-}
 
 // Helper: Update .env file
 async function updateEnvFile(updates) {
@@ -565,8 +672,8 @@ app.post('/api/settings/notification-email', requireAuth, async (req, res) => {
 app.get('/api/policies', async (req, res) => {
     try {
         console.log('📍 GET /api/policies - Request received');
-        const data = await bridgeFetch('/api/init');
-        console.log('✅ Bridge fetch successful');
+        const data = await firewalla.getInitData();
+        console.log('✅ Firewalla data fetch successful');
 
         const policyRules = data.policyRules || [];
         const userTags = data.userTags || {};
@@ -642,12 +749,8 @@ app.post('/api/policies/:pid/pause', async (req, res) => {
             return res.status(400).json({ error: 'reason is required' });
         }
 
-        // Pause via bridge
-        const result = await bridgeFetch(`/api/policy/${pid}/pause`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ minutes })
-        });
+        // Pause via Firewalla client
+        const result = await firewalla.pausePolicy(pid, minutes);
 
         // Log the pause with reason
         const logEntry = {
@@ -661,7 +764,7 @@ app.post('/api/policies/:pid/pause', async (req, res) => {
         };
 
         // Get policy details for email and logging
-        const data = await bridgeFetch('/api/init');
+        const data = await firewalla.getInitData();
         const policy = data.policyRules?.find(p => p.pid === pid);
         const userTags = data.userTags || {};
 
@@ -729,10 +832,8 @@ app.post('/api/policies/:pid/enable', async (req, res) => {
     try {
         const { pid } = req.params;
 
-        // Enable via bridge
-        const result = await bridgeFetch(`/api/policy/${pid}/enable`, {
-            method: 'POST'
-        });
+        // Enable via Firewalla client
+        const result = await firewalla.enablePolicy(pid);
 
         res.json(result);
     } catch (error) {
@@ -740,16 +841,11 @@ app.post('/api/policies/:pid/enable', async (req, res) => {
     }
 });
 
-// Check bridge server health
+// Check Firewalla connection health
 app.get('/health', async (req, res) => {
     try {
-        const response = await fetch(`${config.BRIDGE_URL}/health`);
-        if (response.ok) {
-            const data = await response.json();
-            res.json(data);
-        } else {
-            res.json({ status: 'disconnected', error: 'Bridge server not responding' });
-        }
+        const status = firewalla.getStatus();
+        res.json(status);
     } catch (error) {
         res.json({ status: 'disconnected', error: error.message });
     }
@@ -947,31 +1043,28 @@ app.post('/api/firewalla/connect', requireAuth, async (req, res) => {
 
         console.log('✅ Firewalla configuration saved');
 
-        // Try to reload the bridge server credentials
-        let bridgeReloaded = false;
+        // Reload Firewalla client with new credentials
+        let firewallReloaded = false;
         try {
-            console.log('🔄 Attempting to reload bridge server credentials...');
-            const reloadResponse = await fetch(`${config.BRIDGE_URL}/api/reload`, {
-                method: 'POST'
-            });
+            console.log('🔄 Attempting to reload Firewalla client credentials...');
+            firewallReloaded = await firewalla.reload();
 
-            if (reloadResponse.ok) {
-                console.log('✅ Bridge server credentials reloaded successfully');
-                bridgeReloaded = true;
+            if (firewallReloaded) {
+                console.log('✅ Firewalla client credentials reloaded successfully');
             } else {
-                console.warn('⚠️  Bridge server reload failed, may need manual restart');
+                console.warn('⚠️  Firewalla client reload failed');
             }
         } catch (reloadError) {
-            console.warn('⚠️  Could not reload bridge server (not running?), will need to start it manually');
+            console.warn('⚠️  Could not reload Firewalla client:', reloadError.message);
         }
 
         res.json({
             success: true,
-            message: bridgeReloaded
-                ? 'Successfully connected to Firewalla! Bridge server reloaded automatically.'
-                : 'Successfully connected to Firewalla! Please start the bridge server: node firewalla_bridge.js',
-            requiresRestart: !bridgeReloaded,
-            bridgeReloaded,
+            message: firewallReloaded
+                ? 'Successfully connected to Firewalla! Connection established.'
+                : 'Successfully connected to Firewalla! Please restart the web server to complete setup.',
+            requiresRestart: !firewallReloaded,
+            firewallReloaded,
             firewallInfo: {
                 gid: qrJson.gid,
                 model: qrJson.model || 'unknown',
@@ -1039,24 +1132,35 @@ app.get('/settings', (req, res) => {
     res.sendFile(join(__dirname, 'client', 'build', 'index.html'));
 });
 
-// Start server
-app.listen(config.WEB_PORT, () => {
-    console.log(`\n🌐 Firewalla Time Manager Web UI`);
-    console.log(`   Running on http://localhost:${config.WEB_PORT}`);
-    console.log(`\n📡 Bridge API: ${config.BRIDGE_URL}`);
-
-    if (config.GOOGLE_CLIENT_ID && config.GOOGLE_CLIENT_SECRET) {
-        console.log(`✅ Google OAuth: Configured`);
-    } else {
-        console.log(`⚠️  Google OAuth: Not configured (setup required)`);
+// Initialize Firewalla and start server
+(async () => {
+    // Try to initialize Firewalla connection on startup
+    try {
+        await firewalla.initialize();
+    } catch (error) {
+        console.warn('⚠️  Firewalla connection not initialized (credentials may not be configured yet)');
     }
 
-    if (gmailClient) {
-        console.log(`✉️  Email notifications: Enabled (${config.GMAIL_USER})`);
-        console.log(`   Sending to: ${config.NOTIFY_EMAIL || 'Not configured'}`);
-    } else {
-        console.log(`✉️  Email notifications: Disabled`);
-    }
+    app.listen(config.WEB_PORT, () => {
+        console.log(`\n🌐 Firewalla Time Manager Web UI`);
+        console.log(`   Running on http://localhost:${config.WEB_PORT}`);
 
-    console.log(`\n✨ Open http://localhost:${config.WEB_PORT} in your browser\n`);
-});
+        const fwStatus = firewalla.getStatus();
+        console.log(`\n📡 Firewalla: ${fwStatus.status} ${fwStatus.status === 'connected' ? '(' + fwStatus.firewalla_ip + ')' : ''}`);
+
+        if (config.GOOGLE_CLIENT_ID && config.GOOGLE_CLIENT_SECRET) {
+            console.log(`✅ Google OAuth: Configured`);
+        } else {
+            console.log(`⚠️  Google OAuth: Not configured (setup required)`);
+        }
+
+        if (gmailClient) {
+            console.log(`✉️  Email notifications: Enabled (${config.GMAIL_USER})`);
+            console.log(`   Sending to: ${config.NOTIFY_EMAIL || 'Not configured'}`);
+        } else {
+            console.log(`✉️  Email notifications: Disabled`);
+        }
+
+        console.log(`\n✨ Open http://localhost:${config.WEB_PORT} in your browser\n`);
+    });
+})();
