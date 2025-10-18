@@ -53,6 +53,8 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ setupConfig, onSetupCo
   const [bridgeStatus, setBridgeStatus] = useState<'checking' | 'connected' | 'disconnected'>('checking');
   const [notificationEmail, setNotificationEmail] = useState(setupConfig?.notificationEmail || '');
   const [emailSaving, setEmailSaving] = useState(false);
+  const [testEmailSending, setTestEmailSending] = useState(false);
+  const [testEmailResult, setTestEmailResult] = useState<{type: 'success' | 'error', message: string} | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -380,6 +382,35 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ setupConfig, onSetupCo
     }
   };
 
+  const handleSendTestEmail = async () => {
+    setTestEmailSending(true);
+    setTestEmailResult(null);
+
+    try {
+      const response = await fetch('/api/test-email', {
+        method: 'POST',
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || 'Failed to send test email');
+      }
+
+      const data = await response.json();
+      setTestEmailResult({
+        type: 'success',
+        message: data.message || 'Test email sent successfully!'
+      });
+    } catch (err) {
+      setTestEmailResult({
+        type: 'error',
+        message: err instanceof Error ? err.message : 'Failed to send test email'
+      });
+    } finally {
+      setTestEmailSending(false);
+    }
+  };
+
   const isConnected = setupConfig?.firewallConfigured ?? false;
 
   return (
@@ -696,6 +727,45 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ setupConfig, onSetupCo
             )}
           </Button>
         </Box>
+
+        <Divider sx={{ my: 2 }} />
+
+        <Typography variant="subtitle2" gutterBottom>
+          Test Email
+        </Typography>
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+          Send a test email to verify your email configuration is working
+        </Typography>
+        <Button
+          variant="outlined"
+          onClick={handleSendTestEmail}
+          disabled={testEmailSending || !setupConfig?.emailConfigured}
+          sx={{ position: 'relative', minWidth: 120 }}
+        >
+          {testEmailSending ? 'Sending...' : 'Send Test Email'}
+          {testEmailSending && (
+            <CircularProgress
+              size={24}
+              color="inherit"
+              sx={{
+                position: 'absolute',
+                top: '50%',
+                left: '50%',
+                marginTop: '-12px',
+                marginLeft: '-12px',
+              }}
+            />
+          )}
+        </Button>
+        {testEmailResult && (
+          <Alert
+            severity={testEmailResult.type}
+            sx={{ mt: 2 }}
+            onClose={() => setTestEmailResult(null)}
+          >
+            {testEmailResult.message}
+          </Alert>
+        )}
       </Paper>
 
       <Paper sx={{ p: 3, mb: 2 }}>

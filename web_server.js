@@ -9,7 +9,6 @@ import express from 'express';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import dotenv from 'dotenv';
-import nodemailer from 'nodemailer';
 import fs from 'fs/promises';
 import session from 'express-session';
 import passport from 'passport';
@@ -17,6 +16,7 @@ import { Strategy as GoogleStrategy } from 'passport-google-oauth20';
 import multer from 'multer';
 import jsQR from 'jsqr';
 import { Jimp } from 'jimp';
+import { google } from 'googleapis';
 
 // Get current directory
 const __filename = fileURLToPath(import.meta.url);
@@ -48,8 +48,8 @@ let config = {
     NOTIFY_EMAIL: process.env.NOTIFY_EMAIL || ''
 };
 
-// Gmail transporter (reloadable)
-let mailTransporter = null;
+// Gmail API client (reloadable)
+let gmailClient = null;
 
 // Helper: Reload environment variables from .env file
 async function reloadEnv() {
@@ -96,28 +96,99 @@ async function reloadEnv() {
     }
 }
 
-// Helper: Create Gmail transporter
-function createMailTransporter() {
-    if (!config.GMAIL_USER || !config.GMAIL_CLIENT_ID) {
+// Helper: Create Gmail API client
+function createGmailClient() {
+    if (!config.GMAIL_USER || !config.GMAIL_CLIENT_ID || !config.GMAIL_REFRESH_TOKEN) {
         console.warn('⚠️  Gmail not configured. Email notifications will be disabled.');
         return null;
     }
 
     try {
-        return nodemailer.createTransporter({
-            service: 'gmail',
-            auth: {
-                type: 'OAuth2',
-                user: config.GMAIL_USER,
-                clientId: config.GMAIL_CLIENT_ID,
-                clientSecret: config.GMAIL_CLIENT_SECRET,
-                refreshToken: config.GMAIL_REFRESH_TOKEN
-            }
+        const oauth2Client = new google.auth.OAuth2(
+            config.GMAIL_CLIENT_ID,
+            config.GMAIL_CLIENT_SECRET,
+            config.WEB_URL + '/auth/google/callback'
+        );
+
+        oauth2Client.setCredentials({
+            refresh_token: config.GMAIL_REFRESH_TOKEN
         });
+
+        const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
+
+        console.log('✅ Gmail API client initialized');
+        return gmail;
     } catch (error) {
-        console.error('Failed to create mail transporter:', error.message);
+        console.error('Failed to create Gmail client:', error.message);
         return null;
     }
+}
+
+// Helper: Escape HTML to prevent XSS in emails
+function escapeHtml(text) {
+    if (text == null) return '';
+    const map = {
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#039;'
+    };
+    return String(text).replace(/[&<>"']/g, m => map[m]);
+}
+
+// Helper: Send email via Gmail API
+async function sendGmailMessage(to, subject, htmlBody) {
+    if (!gmailClient) {
+        throw new Error('Gmail client not initialized');
+    }
+
+    // Validate inputs
+    if (!to || typeof to !== 'string' || !to.trim()) {
+        throw new Error('Invalid recipient email address');
+    }
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(to.trim())) {
+        throw new Error('Invalid email address format');
+    }
+
+    if (!subject || typeof subject !== 'string' || !subject.trim()) {
+        throw new Error('Invalid email subject');
+    }
+
+    if (!htmlBody || typeof htmlBody !== 'string' || !htmlBody.trim()) {
+        throw new Error('Invalid email body');
+    }
+
+    // Create MIME message
+    const message = [
+        `From: ${config.GMAIL_USER}`,
+        `To: ${to.trim()}`,
+        `Subject: ${subject.trim()}`,
+        'MIME-Version: 1.0',
+        'Content-Type: text/html; charset=utf-8',
+        '',
+        htmlBody
+    ].join('\n');
+
+    // Encode message in base64url format (Gmail API requirement)
+    // Replace + with -, / with _, and remove trailing =
+    const encodedMessage = Buffer.from(message)
+        .toString('base64')
+        .replace(/\+/g, '-')
+        .replace(/\//g, '_')
+        .replace(/=+$/, '');
+
+    // Send via Gmail API
+    const result = await gmailClient.users.messages.send({
+        userId: 'me',
+        requestBody: {
+            raw: encodedMessage
+        }
+    });
+
+    return result;
 }
 
 // Helper: Reinitialize Google OAuth strategy
@@ -157,7 +228,7 @@ function reinitializeGoogleStrategy() {
 async function reloadConfig() {
     await reloadEnv();
     reinitializeGoogleStrategy();
-    mailTransporter = createMailTransporter();
+    gmailClient = createGmailClient();
     return true;
 }
 
@@ -218,8 +289,8 @@ passport.deserializeUser((user, done) => {
 // Initialize Google OAuth strategy
 reinitializeGoogleStrategy();
 
-// Initialize mail transporter
-mailTransporter = createMailTransporter();
+// Initialize Gmail API client
+gmailClient = createGmailClient();
 
 // Configure multer for file uploads
 const upload = multer({
@@ -340,6 +411,21 @@ app.get('/auth/google/callback',
         setup.adminEmail = req.user.email;
         setup.emailConfigured = !!req.user.refreshToken;
         await saveSetupConfig(setup);
+
+        // Save Gmail credentials for email notifications
+        if (req.user.refreshToken) {
+            await updateEnvFile({
+                GMAIL_USER: req.user.email,
+                GMAIL_CLIENT_ID: config.GOOGLE_CLIENT_ID,
+                GMAIL_CLIENT_SECRET: config.GOOGLE_CLIENT_SECRET,
+                GMAIL_REFRESH_TOKEN: req.user.refreshToken
+            });
+
+            // Reload config to initialize mail transporter
+            await reloadConfig();
+
+            console.log('✅ Gmail credentials saved for email notifications');
+        }
 
         // Redirect to home
         res.redirect('/');
@@ -595,24 +681,23 @@ app.post('/api/policies/:pid/pause', async (req, res) => {
 
         // Send email notification
         let emailSent = false;
-        if (mailTransporter && config.NOTIFY_EMAIL) {
+        if (gmailClient && config.NOTIFY_EMAIL) {
             try {
-                await mailTransporter.sendMail({
-                    from: config.GMAIL_USER,
-                    to: config.NOTIFY_EMAIL,
-                    subject: `Firewalla: Internet Access Granted for ${userName}`,
-                    html: `
-                        <h2>Internet Access Granted</h2>
-                        <p><strong>User:</strong> ${userName}</p>
-                        <p><strong>Policy ID:</strong> ${pid}</p>
-                        <p><strong>Duration:</strong> ${minutes} minutes</p>
-                        <p><strong>Reason:</strong> ${reason}</p>
-                        <p><strong>Expires At:</strong> ${result.expiresAt}</p>
-                        <p><strong>Time:</strong> ${new Date().toLocaleString()}</p>
-                        <hr>
-                        <p><em>This policy will automatically re-enable after ${minutes} minutes.</em></p>
+                await sendGmailMessage(
+                    config.NOTIFY_EMAIL,
+                    `Firewalla: Internet Access Granted for ${escapeHtml(userName)}`,
                     `
-                });
+                        <h2>Internet Access Granted</h2>
+                        <p><strong>User:</strong> ${escapeHtml(userName)}</p>
+                        <p><strong>Policy ID:</strong> ${escapeHtml(pid)}</p>
+                        <p><strong>Duration:</strong> ${escapeHtml(minutes)} minutes</p>
+                        <p><strong>Reason:</strong> ${escapeHtml(reason)}</p>
+                        <p><strong>Expires At:</strong> ${escapeHtml(result.expiresAt)}</p>
+                        <p><strong>Time:</strong> ${escapeHtml(new Date().toLocaleString())}</p>
+                        <hr>
+                        <p><em>This policy will automatically re-enable after ${escapeHtml(minutes)} minutes.</em></p>
+                    `
+                );
                 emailSent = true;
                 console.log(`✉️  Email sent to ${config.NOTIFY_EMAIL}`);
             } catch (emailError) {
@@ -698,23 +783,24 @@ app.get('/api/history', async (req, res) => {
 
 // Send test email
 app.post('/api/test-email', async (req, res) => {
-    if (!mailTransporter) {
+    if (!gmailClient) {
         return res.status(400).json({ error: 'Email not configured' });
     }
 
     try {
-        await mailTransporter.sendMail({
-            from: config.GMAIL_USER,
-            to: config.NOTIFY_EMAIL || config.GMAIL_USER,
-            subject: 'Firewalla Time Manager - Test Email',
-            html: `
+        const timestamp = new Date().toLocaleString();
+        await sendGmailMessage(
+            config.NOTIFY_EMAIL || config.GMAIL_USER,
+            'Firewalla Time Manager - Test Email',
+            `
                 <h2>Test Email</h2>
                 <p>Your email configuration is working correctly!</p>
-                <p><strong>Time:</strong> ${new Date().toLocaleString()}</p>
+                <p><strong>Time:</strong> ${escapeHtml(timestamp)}</p>
             `
-        });
+        );
         res.json({ success: true, message: 'Test email sent successfully' });
     } catch (error) {
+        console.error('Test email error:', error);
         res.status(500).json({ error: error.message });
     }
 });
@@ -965,7 +1051,7 @@ app.listen(config.WEB_PORT, () => {
         console.log(`⚠️  Google OAuth: Not configured (setup required)`);
     }
 
-    if (mailTransporter) {
+    if (gmailClient) {
         console.log(`✉️  Email notifications: Enabled (${config.GMAIL_USER})`);
         console.log(`   Sending to: ${config.NOTIFY_EMAIL || 'Not configured'}`);
     } else {
