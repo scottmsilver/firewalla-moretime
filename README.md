@@ -17,21 +17,21 @@ A tool to manage internet access time for your kids on Firewalla devices. Provid
 
 ```
 ┌─────────────────┐
-│    Web UI       │  Browser interface with pause buttons
-│  (port 3003)    │  Shows policies, history, sends emails
+│  React Web UI   │  Browser interface with pause buttons
+│  (port 3005)    │  Shows policies, history
+│                 │  Setup wizard, Google OAuth, Settings
 └────────┬────────┘
-         │
          │ HTTP
          │
-┌────────┴────────┐
-│  Python CLI     │  User-friendly command-line interface
-│ firewalla_cli.py│
+┌────────▼────────┐
+│  Web Server     │  Express backend (port 3003)
+│  web_server.js  │  API, authentication, email
 └────────┬────────┘
          │ HTTP (port 3002)
          │
 ┌────────▼────────┐
-│  Node.js Bridge │  Handles encrypted communication
-│firewalla_bridge │
+│  Bridge Server  │  Handles encrypted communication
+│firewalla_bridge │  Auto-configures via web UI
 │      .js        │
 └────────┬────────┘
          │ Encrypted API (port 8833)
@@ -39,333 +39,187 @@ A tool to manage internet access time for your kids on Firewalla devices. Provid
          │
 ┌────────▼────────┐
 │   Firewalla     │  Your Firewalla device
-│  192.168.1.129  │
+│  (your network) │
 └─────────────────┘
 ```
 
-## Setup
+## Quick Start
+
+The easiest way to set up Firewalla Time Manager is through the web interface:
+
+1. **Install dependencies:**
+   ```bash
+   npm install
+   ```
+
+2. **Copy environment template:**
+   ```bash
+   cp .env.example .env
+   ```
+
+3. **Generate a session secret:**
+   ```bash
+   openssl rand -base64 32
+   ```
+   Add it to `.env` as `SESSION_SECRET=<your-generated-secret>`
+
+4. **Start the servers:**
+   ```bash
+   npm run dev
+   ```
+
+5. **Open your browser to http://localhost:3003**
+
+6. **Follow the setup wizard:**
+   - Upload QR code screenshot from Firewalla app
+   - Configure Google OAuth for admin login
+   - Set up email notifications (optional)
+   - Connect to your Firewalla device
+
+That's it! The wizard will guide you through the rest.
+
+## Detailed Setup
 
 ### 1. Prerequisites
 
 - Node.js (v14 or higher)
-- Python 3.8+
 - A Firewalla device on your network
+- Google account (for admin authentication)
 
 ### 2. Install Dependencies
 
 ```bash
 # Install Node.js dependencies
 npm install
-
-# Create Python virtual environment
-python3 -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-pip install -r requirements.txt
 ```
 
-### 3. Authentication Setup
-
-You need to generate ETP (Endpoint Token Pair) keys from your Firewalla device:
-
-**Step 1: Get QR Code from Firewalla App**
-1. Open Firewalla mobile app
-2. Go to **Settings** → **Additional Pairing**
-3. Take a screenshot of the QR code
-4. Copy the screenshot to this directory
-
-**Step 2: Generate ETP Keys**
-```bash
-node setup_auth.js qr_code_screenshot.png
-```
-
-This will create:
-- `etp.private.pem` - Private key (keep secure!)
-- `etp.public.pem` - Public key
-
-**Step 3: Update Firewalla IP (if needed)**
-Edit `firewalla_bridge.js` and update the IP address:
-```javascript
-const FIREWALLA_IP = '192.168.1.129';  // Change to your Firewalla's IP
-```
-
-### 4. Start the Bridge Server
+### 3. Initial Configuration
 
 ```bash
-node firewalla_bridge.js
+# Copy the environment template
+cp .env.example .env
+
+# Generate a secure session secret
+openssl rand -base64 32
 ```
 
-You should see:
-```
-Loading ETP keys...
-Logging in to Firewalla...
-Testing connection...
-✓ Connected to Firewalla successfully!
-
-Firewalla Bridge API running on http://localhost:3002
+Edit `.env` and set:
+```env
+SESSION_SECRET=<paste-your-generated-secret-here>
 ```
 
-**Optional: Run in Background**
+### 4. Start the Application
+
 ```bash
-nohup node firewalla_bridge.js > bridge.log 2>&1 &
+# Start both bridge and web servers
+npm run dev
 ```
 
-### 5. Web UI Setup (Optional)
+This will start:
+- Bridge server on port 3002
+- Web server on port 3003
+- React development server on port 3005
 
-The web UI provides an easy-to-use interface for managing policies with one-click pause buttons and email notifications.
+### 5. Complete Setup via Web UI
 
-**Start the Web Server**
-```bash
-node web_server.js
-```
+1. **Open http://localhost:3003** in your browser
 
-You should see:
-```
-🌐 Firewalla Time Manager Web UI
-   Running on http://localhost:3003
+2. **Get QR Code from Firewalla App:**
+   - Open Firewalla mobile app
+   - Go to **Settings** → **Additional Pairing**
+   - Take a screenshot of the QR code
 
-📡 Bridge API: http://localhost:3002
-✉️  Email notifications: Disabled
-```
+3. **Upload QR Code:**
+   - Click "Upload QR Code" in the setup wizard
+   - Select your screenshot
+   - The system will automatically extract credentials and IP address
 
-**Access the Web Interface**
+4. **Configure Google OAuth:**
+   - Create a Google Cloud project
+   - Enable Gmail API
+   - Create OAuth 2.0 credentials
+   - Paste Client ID and Client Secret in the wizard
+   - The wizard will save these to your `.env` file
 
-Open your browser to http://localhost:3003
+5. **Login with Google:**
+   - Click "Login with Google"
+   - Grant necessary permissions
+   - This enables email notifications (optional)
 
-Features:
-- View all time-based policies with user names
-- One-click pause buttons (15 min, 30 min, 1 hour)
-- View pause history
-- Auto-refresh every minute with last update timestamp
-- Shows exact auto-unpause time for paused policies
-- Email notifications (optional, see below)
-
-**Enable Email Notifications (Optional)**
-
-To receive email notifications when policies are paused:
-
-1. Follow the [Gmail OAuth2 Setup Guide](GMAIL_SETUP.md)
-2. Add credentials to your `.env` file:
-   ```env
-   GMAIL_USER=your-email@gmail.com
-   GMAIL_CLIENT_ID=123456789.apps.googleusercontent.com
-   GMAIL_CLIENT_SECRET=GOCSPX-abc123...
-   GMAIL_REFRESH_TOKEN=1//abc123...
-   NOTIFY_EMAIL=parent@example.com
-   ```
-3. Restart the web server
-
-**Run Web Server in Background**
-```bash
-nohup node web_server.js > web_server.log 2>&1 &
-```
+6. **Connect to Firewalla:**
+   - Click "Connect to Firewalla"
+   - The bridge server will reload with your credentials
+   - Connection status will show "Connected" when successful
 
 ## Usage
 
-### Web UI Usage
+1. **Open http://localhost:3003** in your browser
 
-1. Open http://localhost:3003 in your browser
-2. You'll see cards for each time-based policy showing:
-   - User name (e.g., "Jules")
-   - Current status (BLOCKING or PAUSED)
-   - Schedule information
-   - Pause buttons (15 min, 30 min, 1 hour)
-3. Click a pause button to grant internet access
-4. The policy will automatically re-enable after the time expires
-5. Switch to the "History" tab to view all pauses
+2. **Login with Google** (admin authentication)
 
-### Command Line Usage
+3. **View Policies:**
+   - See cards for each time-based policy showing:
+     - User name (e.g., "Jules")
+     - Current status (BLOCKING or PAUSED)
+     - Schedule information
+     - Pause buttons (15 min, 30 min, 1 hour)
+   - Quarantine policies are automatically labeled and filtered
 
-### List All Policies (with user info)
+4. **Pause a Policy:**
+   - Click a pause button (15 min, 30 min, or 1 hour)
+   - Policy immediately grants internet access
+   - Automatic re-enabling after time expires
+   - Email notification sent (if configured)
 
-```bash
-./venv/bin/python firewalla_cli.py list
-```
+5. **View History:**
+   - Switch to "History" tab
+   - See all pauses with timestamps and durations
+   - Track who got extra time and when
 
-Output:
-```
-✓ Connected to Firewalla at 192.168.1.129
+6. **Configure Settings:**
+   - Click "Settings" to update:
+     - Google OAuth credentials
+     - Email notification recipient
+     - Firewalla connection details
 
-Found 3 time-based internet blocking policies:
-
-Policy ID: 5 [ACTIVE]
-  Users: Jules
-  Tags: tag:2
-  Type: mac
-  Action: block
-  Schedule: Blocks at 23:20 for 8h 10m
-  Times triggered: 63212528
-```
-
-### List Policies by User
-
-```bash
-./venv/bin/python firewalla_cli.py list --by-user
-```
-
-Output:
-```
-👤 Jules
-   User ID: 14
-   Tag: tag:2
-
-   Policy ID: 5 [ACTIVE]
-     Type: mac
-     Action: block
-     Schedule: Blocks at 23:20 for 8h 10m
-     Times triggered: 63212528
-```
-
-### Pause a Policy (Recommended - Auto Re-enables)
-
-Grant internet access for a specific duration. The policy automatically re-enables after the time expires:
-
-```bash
-# Pause Jules' internet blocking for 30 minutes
-./venv/bin/python firewalla_cli.py pause 5 30
-```
-
-Output:
-```
-Pausing policy 5 (tag:2) for 30 minutes...
-
-✓ Successfully paused policy 5
-⏰ Policy will automatically re-enable at 2025-10-15T19:00:38.294Z
-🌐 Internet access granted for 30 minutes
-
-Pause logged to time_extensions.log
-```
-
-### Grant Access Manually
-
-If you want to grant access and manually re-enable later:
-
-```bash
-# Grant access for 30 minutes (requires manual re-enable)
-./venv/bin/python firewalla_cli.py grant 5 30
-```
-
-### Re-enable a Policy
-
-```bash
-./venv/bin/python firewalla_cli.py enable 5
-```
-
-### View Activity Log
-
-```bash
-./venv/bin/python firewalla_cli.py log
-```
-
-Output:
-```
-Time Extension Log:
-
-2025-10-15T18:45:38 - Paused policy 5 (tag:2) for 15 minutes (expires: 2025-10-15T19:00:38.294Z)
-```
-
-## Common Use Cases
-
-### Scenario 1: Kid Asks for More Time
-
-Your kid texts: "Can I have 30 more minutes?"
-
-```bash
-# List policies to find their policy ID
-./venv/bin/python firewalla_cli.py list --by-user
-
-# Pause their policy for 30 minutes (auto re-enables)
-./venv/bin/python firewalla_cli.py pause 5 30
-```
-
-The policy will automatically re-enable after 30 minutes - no manual intervention needed!
-
-### Scenario 2: Emergency Internet Access
-
-Need to give someone immediate access:
-
-```bash
-# Quick pause for 1 hour
-./venv/bin/python firewalla_cli.py pause 5 60
-```
-
-### Scenario 3: Check Who's Blocked Right Now
-
-```bash
-# See all policies and their status
-./venv/bin/python firewalla_cli.py list
-```
-
-Look for `[ACTIVE]` vs `[DISABLED]` status.
-
-## Command Reference
-
-```bash
-# List commands
-./venv/bin/python firewalla_cli.py list              # Show all policies with users
-./venv/bin/python firewalla_cli.py list --by-user    # Group by user
-
-# Control commands
-./venv/bin/python firewalla_cli.py pause <pid> <min>  # Pause policy (auto re-enable)
-./venv/bin/python firewalla_cli.py grant <pid> <min>  # Grant access (manual re-enable)
-./venv/bin/python firewalla_cli.py enable <pid>       # Re-enable a policy
-
-# Logging
-./venv/bin/python firewalla_cli.py log               # View all grants/pauses
-```
 
 ## File Structure
 
 ```
 /home/ssilver/development/fw/
 ├── firewalla_bridge.js       # Bridge server (Node.js)
-├── web_server.js             # Web UI server (Node.js)
-├── firewalla_cli.py          # CLI tool (Python)
-├── setup_auth.js             # QR code authentication setup
-├── public/
-│   └── index.html            # Web UI interface
-├── etp.private.pem           # Private key (generated)
-├── etp.public.pem            # Public key (generated)
+├── web_server.js             # Web UI backend (Node.js + Express)
+├── setup_auth.js             # QR code parser (used by web UI)
+├── client/                   # React frontend (web UI)
+│   ├── src/
+│   │   ├── App.js            # Main app component
+│   │   ├── components/       # React components
+│   │   └── ...
+│   ├── public/
+│   └── package.json
+├── test/                     # Test files
+│   ├── test_pause.js
+│   ├── test_ui_countdown.js
+│   └── test_qr_parser.js
+├── etp.private.pem           # Private key (generated by web UI)
+├── etp.public.pem            # Public key (generated by web UI)
+├── setup.json                # Setup state (generated by web UI)
 ├── .env                      # Configuration (create from .env.example)
 ├── .env.example              # Configuration template
 ├── package.json              # Node.js dependencies
-├── requirements.txt          # Python dependencies
 ├── time_extensions.log       # Activity log (generated)
 ├── README.md                 # This file
-├── SETUP.md                  # Quick setup guide
-└── GMAIL_SETUP.md            # Gmail OAuth2 setup guide
+└── SETUP.md                  # Setup guide
 ```
 
 ## Troubleshooting
 
 ### Bridge Server Won't Connect
 
-1. Check Firewalla IP address is correct in `firewalla_bridge.js`
+1. Upload QR code via web UI setup wizard
 2. Verify ETP keys exist: `ls -la etp.*.pem`
-3. Regenerate keys if needed: `node setup_auth.js qr_code.png`
-
-### Python CLI Can't Connect to Bridge
-
-1. Make sure bridge server is running: `curl http://localhost:3002/health`
-2. Check if port 3002 is in use: `lsof -i :3002`
-3. Restart bridge server: `pkill -f firewalla_bridge && node firewalla_bridge.js &`
-
-### Policy Not Updating
-
-1. Check policy exists: `./venv/bin/python firewalla_cli.py list`
-2. Verify you're using the correct policy ID
-3. Check bridge server logs for errors
-
-### "Command not found" Error
-
-Make sure to activate the Python virtual environment:
-```bash
-source venv/bin/activate
-```
-
-Or use the full path:
-```bash
-./venv/bin/python firewalla_cli.py list
-```
+3. Check `.env` file has correct `FIREWALLA_IP` and `EMAIL`
+4. Click "Connect to Firewalla" button in web UI
 
 ### Web UI Not Loading Policies
 
@@ -385,13 +239,18 @@ Or use the full path:
 ## Security Notes
 
 - **Keep `etp.private.pem` secure!** This key allows full access to your Firewalla device.
-- **Keep `.env` file secure!** Contains Gmail OAuth2 credentials with send access.
+- **Keep `.env` file secure!** Contains:
+  - Gmail OAuth2 credentials with send access
+  - Google OAuth client secret for admin authentication
+  - Session secret for cookie encryption
+- **Admin Authentication:** Google OAuth2 required for web UI access
 - The bridge server runs on localhost only (not exposed to network)
 - The web server runs on localhost only (not exposed to network)
-- All communication with Firewalla is encrypted
+- All communication with Firewalla is encrypted using ETP keys
 - Activity is logged to `time_extensions.log` for audit purposes
 - Gmail OAuth2 uses refresh tokens (no password stored)
 - Email notifications include timestamp and policy details for audit trail
+- Quarantine policies are automatically filtered (shows only internet blocking, not intranet blocking)
 
 ## Advanced Usage
 
@@ -400,26 +259,8 @@ Or use the full path:
 Create a systemd service or add to crontab:
 
 ```bash
-# Start both servers on boot
-@reboot cd /home/ssilver/development/fw && nohup node firewalla_bridge.js > bridge.log 2>&1 &
-@reboot cd /home/ssilver/development/fw && sleep 5 && nohup node web_server.js > web_server.log 2>&1 &
-```
-
-### Create Shortcuts
-
-Add to your `~/.bashrc` or `~/.zshrc`:
-
-```bash
-alias fw-list='cd /home/ssilver/development/fw && ./venv/bin/python firewalla_cli.py list'
-alias fw-pause='cd /home/ssilver/development/fw && ./venv/bin/python firewalla_cli.py pause'
-alias fw-log='cd /home/ssilver/development/fw && ./venv/bin/python firewalla_cli.py log'
-```
-
-Then use:
-```bash
-fw-list
-fw-pause 5 30
-fw-log
+# Start all servers on boot
+@reboot cd /home/ssilver/development/fw && npm run dev > app.log 2>&1 &
 ```
 
 ## API Endpoints

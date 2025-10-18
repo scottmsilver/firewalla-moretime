@@ -92,8 +92,8 @@ async function runTests() {
     console.log('═'.repeat(60));
 
     const testImages = [
-        join(__dirname, 'test/fixtures/qr-test-1.jpeg'),  // 815 x 844 (previously failed)
-        join(__dirname, 'test/fixtures/qr-test-2.png'),   // 1080 x 2410 (previously failed)
+        join(__dirname, 'fixtures/qr-test-1.jpeg'),  // 815 x 844 (previously failed)
+        join(__dirname, 'fixtures/qr-test-2.png'),   // 1080 x 2410 (previously failed)
     ];
 
     // Also check for any other test images in common locations
