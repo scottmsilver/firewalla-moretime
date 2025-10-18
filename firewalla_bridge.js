@@ -228,21 +228,60 @@ app.get('/health', (req, res) => {
     });
 });
 
+// Reload credentials endpoint
+app.post('/api/reload', async (req, res) => {
+    try {
+        console.log('Reloading credentials...');
+
+        // Reload environment variables
+        dotenv.config({ override: true });
+
+        // Re-initialize with new credentials
+        const initialized = await initialize();
+
+        if (!initialized) {
+            return res.status(500).json({
+                error: 'Failed to reload credentials',
+                message: 'Could not initialize connection with new credentials'
+            });
+        }
+
+        res.json({
+            success: true,
+            message: 'Credentials reloaded successfully',
+            status: 'connected',
+            firewalla_ip: process.env.FIREWALLA_IP || FIREWALLA_IP
+        });
+    } catch (error) {
+        console.error('Reload error:', error);
+        res.status(500).json({
+            error: 'Failed to reload credentials',
+            details: error.message
+        });
+    }
+});
+
 // Start server
 (async () => {
     const initialized = await initialize();
 
     if (!initialized) {
-        console.error('Failed to initialize. Exiting...');
-        process.exit(1);
+        console.warn('⚠️  Failed to initialize on startup (credentials may not be configured yet)');
+        console.log('   Server will start anyway. Use POST /api/reload to load credentials.');
     }
 
     app.listen(PORT, () => {
         console.log(`\nFirewalla Bridge API running on http://localhost:${PORT}`);
         console.log(`\nAvailable endpoints:`);
         console.log(`  GET  /health           - Check connection status`);
+        console.log(`  POST /api/reload       - Reload credentials`);
         console.log(`  GET  /api/init         - Get all initial data`);
         console.log(`  GET  /api/screentime   - Get screen time rules`);
         console.log(`  POST /api/send         - Send raw API message`);
+
+        if (!initialized) {
+            console.log(`\n⚠️  Not connected to Firewalla yet.`);
+            console.log(`   Connect via the web UI or call POST /api/reload after configuring credentials.`);
+        }
     });
 })();

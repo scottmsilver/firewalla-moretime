@@ -154,7 +154,21 @@ function App() {
     }
   }, []);
 
+  // Redirect to Settings tab if Firewalla not configured
   useEffect(() => {
+    if (authStatus && !authStatus.setup.firewallConfigured) {
+      setCurrentTab(2); // Settings tab
+      window.history.pushState({}, '', '/settings');
+    }
+  }, [authStatus]);
+
+  useEffect(() => {
+    // Only fetch policies if Firewalla is configured
+    if (!authStatus?.setup.firewallConfigured) {
+      setLoading(false);
+      return;
+    }
+
     fetchPolicies(true); // Initial load
     fetchHistory();
 
@@ -165,7 +179,7 @@ function App() {
     }, 60000);
 
     return () => clearInterval(interval);
-  }, [currentTab, fetchPolicies, fetchHistory]);
+  }, [currentTab, fetchPolicies, fetchHistory, authStatus]);
 
   const handlePause = useCallback(async (pid: string, minutes: number, reason: string) => {
     try {
@@ -305,7 +319,7 @@ function App() {
                     More Time
                   </Typography>
                   <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem' }}>
-                    v1.0.8
+                    v1.0.9
                   </Typography>
                 </Box>
                 <Box display="flex" alignItems="center" gap={1}>
@@ -399,7 +413,25 @@ function App() {
               </Tabs>
             </Box>
 
-            {currentTab === 0 && timezone && (
+            {currentTab === 0 && !authStatus.setup.firewallConfigured && (
+              <Paper sx={{ p: 4, textAlign: 'center' }}>
+                <Typography variant="h6" gutterBottom>
+                  Firewalla Not Connected
+                </Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                  Please connect to your Firewalla device in Settings to view schedules.
+                </Typography>
+                <Box>
+                  <Tab
+                    label="Go to Settings"
+                    onClick={() => handleTabChange({} as React.SyntheticEvent, 2)}
+                    sx={{ textTransform: 'none' }}
+                  />
+                </Box>
+              </Paper>
+            )}
+
+            {currentTab === 0 && authStatus.setup.firewallConfigured && timezone && (
               <PoliciesTab
                 policies={policies}
                 loading={loading}
@@ -408,13 +440,33 @@ function App() {
                 onEnable={handleEnable}
               />
             )}
-            {currentTab === 0 && !timezone && (
+            {currentTab === 0 && authStatus.setup.firewallConfigured && !timezone && (
               <Box display="flex" justifyContent="center" alignItems="center" minHeight="200px">
                 <CircularProgress />
               </Box>
             )}
 
-            {currentTab === 1 && <HistoryTab history={history} loading={loading} />}
+            {currentTab === 1 && !authStatus.setup.firewallConfigured && (
+              <Paper sx={{ p: 4, textAlign: 'center' }}>
+                <Typography variant="h6" gutterBottom>
+                  Firewalla Not Connected
+                </Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                  Please connect to your Firewalla device in Settings to view history.
+                </Typography>
+                <Box>
+                  <Tab
+                    label="Go to Settings"
+                    onClick={() => handleTabChange({} as React.SyntheticEvent, 2)}
+                    sx={{ textTransform: 'none' }}
+                  />
+                </Box>
+              </Paper>
+            )}
+
+            {currentTab === 1 && authStatus.setup.firewallConfigured && (
+              <HistoryTab history={history} loading={loading} />
+            )}
 
             {currentTab === 2 && (
               <SettingsTab setupConfig={authStatus.setup} onSetupComplete={refreshSetup} />

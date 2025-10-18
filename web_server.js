@@ -15,7 +15,7 @@ import session from 'express-session';
 import passport from 'passport';
 import { Strategy as GoogleStrategy } from 'passport-google-oauth20';
 import multer from 'multer';
-import QrCode from 'qrcode-reader';
+import jsQR from 'jsqr';
 import { Jimp } from 'jimp';
 
 // Get current directory
@@ -679,27 +679,41 @@ app.post('/api/firewalla/qr-upload', requireAuth, upload.single('qrImage'), asyn
             return res.status(400).json({ error: 'No image file provided' });
         }
 
+        console.log('📷 Processing QR code image, size:', req.file.size, 'bytes, type:', req.file.mimetype);
+
         // Read image with Jimp
         const image = await Jimp.read(req.file.buffer);
+        console.log('📷 Image dimensions:', image.bitmap.width, 'x', image.bitmap.height);
 
-        // Decode QR code
-        const qrReader = new QrCode();
+        // jsQR expects RGBA data in a specific format
+        const { width, height } = image.bitmap;
+        const imageData = new Uint8ClampedArray(width * height * 4);
 
-        const qrData = await new Promise((resolve, reject) => {
-            qrReader.callback = (err, value) => {
-                if (err) {
-                    reject(err);
-                } else {
-                    resolve(value.result);
-                }
-            };
-            qrReader.decode(image.bitmap);
-        });
+        // Copy bitmap data to the format jsQR expects
+        for (let i = 0; i < image.bitmap.data.length; i++) {
+            imageData[i] = image.bitmap.data[i];
+        }
+
+        // Decode QR code using jsQR
+        console.log('🔍 Attempting to decode QR code...');
+        const qrResult = jsQR(imageData, width, height);
+
+        if (!qrResult) {
+            console.error('❌ No QR code detected in image');
+            return res.status(400).json({
+                error: 'QR code not detected. Please ensure: 1) The QR code is clear and in focus, 2) The entire QR code is visible in the image, 3) Try taking a closer screenshot or cropping to just the QR code.'
+            });
+        }
+
+        console.log('✅ QR code decoded successfully');
+        const qrData = qrResult.data;
 
         res.json({ success: true, qrData });
     } catch (error) {
-        console.error('QR code parsing error:', error);
-        res.status(400).json({ error: 'Failed to parse QR code. Please ensure the image contains a valid QR code.' });
+        console.error('QR code parsing error:', error.message);
+        res.status(400).json({
+            error: 'Failed to process image. Please ensure the file is a valid image containing a QR code.'
+        });
     }
 });
 
@@ -720,34 +734,69 @@ app.post('/api/firewalla/connect', requireAuth, async (req, res) => {
             return res.status(400).json({ error: 'Invalid QR code format. Expected JSON data.' });
         }
 
-        // Validate QR data has required fields for key generation
-        if (!qrJson.gid || !qrJson.seed || !qrJson.ek) {
-            return res.status(400).json({
-                error: 'QR code missing required fields (gid, seed, ek). Please ensure you are using the QR code from Firewalla app Settings → Additional Pairing.'
-            });
+        // Validate QR data has required fields
+        const requiredFields = ['gid', 'seed', 'license', 'ek', 'ipaddress'];
+        for (const field of requiredFields) {
+            if (!qrJson[field]) {
+                return res.status(400).json({
+                    error: `QR code missing required field: ${field}. Please ensure you are using a fresh QR code from Firewalla app Settings → Additional Pairing.`
+                });
+            }
         }
 
-        // Import node-firewalla for key generation
-        const { SecureUtil } = await import('node-firewalla');
+        // Import node-firewalla modules
+        const { SecureUtil, FWGroupApi, NetworkService } = await import('node-firewalla');
 
-        // Generate ETP keys from seed data
-        console.log('Generating ETP keys from QR code data...');
-        SecureUtil.generateKeyPairFromSeed({
-            eid: qrJson.gid,
-            seed: qrJson.seed,
-            ek: qrJson.ek
-        });
+        console.log('🔐 Generating new ETP keypair...');
 
-        // Export keys to PEM files
+        // Generate a new random RSA keypair
+        SecureUtil.regenerateKeyPair();
+
+        console.log('📡 Registering keypair with Firewalla...');
+
+        // Check if QR code is expired
+        if (qrJson.exp) {
+            const expDate = new Date(parseInt(qrJson.exp) * 1000);
+            const now = new Date();
+
+            if (expDate < now) {
+                const minutesAgo = Math.floor((now - expDate) / 1000 / 60);
+                return res.status(400).json({
+                    error: `QR code expired ${minutesAgo} minute${minutesAgo === 1 ? '' : 's'} ago. Please generate a fresh QR code from the Firewalla app (Settings → Additional Pairing).`,
+                    expired: true,
+                    expiredAt: expDate.toISOString()
+                });
+            }
+        }
+
+        // Get admin email from auth or use a default
+        const email = req.user?.email || 'admin@localhost';
+
+        // Join the Firewalla group (registers our keypair with the device)
+        const fwGroup = await FWGroupApi.joinGroup(qrJson, email, firewallIP);
+
+        // Test the connection
+        const nwService = new NetworkService(fwGroup);
+        await nwService.ping();
+
+        console.log('✅ Successfully connected to Firewalla!');
+
+        // Get access token
+        const { access_token } = await FWGroupApi.login(email);
+
+        // Save keys to PEM files
         const publicKeyPath = join(__dirname, 'etp.public.pem');
         const privateKeyPath = join(__dirname, 'etp.private.pem');
-        SecureUtil.exportKeyPair(publicKeyPath, privateKeyPath);
-        console.log('✅ ETP keys generated and saved');
 
-        // Update .env file with Firewalla IP and EMAIL
+        await fs.writeFile(publicKeyPath, SecureUtil.publicKey);
+        await fs.writeFile(privateKeyPath, SecureUtil.privateKey);
+
+        console.log('💾 ETP keys saved to disk');
+
+        // Update .env file with Firewalla IP
         await updateEnvFile({
             FIREWALLA_IP: firewallIP,
-            EMAIL: 'api@firewalla.local'
+            EMAIL: email
         });
 
         // Update setup configuration with device info
@@ -755,29 +804,54 @@ app.post('/api/firewalla/connect', requireAuth, async (req, res) => {
         setup.firewallConfigured = true;
         setup.firewallInfo = {
             gid: qrJson.gid,
-            model: qrJson.model,
-            deviceName: qrJson.deviceName,
+            model: qrJson.model || 'unknown',
+            deviceName: qrJson.deviceName || 'Firewalla',
             ipAddress: firewallIP
         };
         await saveSetupConfig(setup);
 
         console.log('✅ Firewalla configuration saved');
 
-        // Notify user to restart the bridge
+        // Try to reload the bridge server credentials
+        let bridgeReloaded = false;
+        try {
+            console.log('🔄 Attempting to reload bridge server credentials...');
+            const reloadResponse = await fetch(`${config.BRIDGE_URL}/api/reload`, {
+                method: 'POST'
+            });
+
+            if (reloadResponse.ok) {
+                console.log('✅ Bridge server credentials reloaded successfully');
+                bridgeReloaded = true;
+            } else {
+                console.warn('⚠️  Bridge server reload failed, may need manual restart');
+            }
+        } catch (reloadError) {
+            console.warn('⚠️  Could not reload bridge server (not running?), will need to start it manually');
+        }
+
         res.json({
             success: true,
-            message: 'Firewalla connection configured successfully! Please restart the bridge server to connect.',
-            requiresRestart: true,
+            message: bridgeReloaded
+                ? 'Successfully connected to Firewalla! Bridge server reloaded automatically.'
+                : 'Successfully connected to Firewalla! Please start the bridge server: node firewalla_bridge.js',
+            requiresRestart: !bridgeReloaded,
+            bridgeReloaded,
             firewallInfo: {
                 gid: qrJson.gid,
-                model: qrJson.model,
-                deviceName: qrJson.deviceName,
+                model: qrJson.model || 'unknown',
+                deviceName: qrJson.deviceName || 'Firewalla',
                 ipAddress: firewallIP
-            }
+            },
+            accessToken: access_token
         });
+
     } catch (error) {
         console.error('Firewalla connection error:', error);
-        res.status(500).json({ error: error.message });
+        res.status(500).json({
+            error: error.message || 'Failed to connect to Firewalla',
+            details: error.message
+        });
     }
 });
 
@@ -794,6 +868,7 @@ app.post('/api/firewalla/disconnect', requireAuth, async (req, res) => {
         // Update setup configuration
         const setup = await loadSetupConfig();
         setup.firewallConfigured = false;
+        delete setup.firewallInfo; // Remove device info
         await saveSetupConfig(setup);
 
         res.json({

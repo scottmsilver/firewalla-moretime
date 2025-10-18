@@ -40,11 +40,14 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ setupConfig, onSetupCo
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [connectionError, setConnectionError] = useState<string | null>(null);
+  const [connectionSuccess, setConnectionSuccess] = useState<string | null>(null);
   const [firewallIP, setFirewallIP] = useState('');
   const [showCamera, setShowCamera] = useState(false);
   const [qrData, setQrData] = useState<string | null>(null);
   const [qrInfo, setQrInfo] = useState<{gid?: string; model?: string; deviceName?: string} | null>(null);
   const [resetDialogOpen, setResetDialogOpen] = useState(false);
+  const [disconnectDialogOpen, setDisconnectDialogOpen] = useState(false);
   const [confirmText, setConfirmText] = useState('');
   const [bridgeStatus, setBridgeStatus] = useState<'checking' | 'connected' | 'disconnected'>('checking');
 
@@ -82,13 +85,10 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ setupConfig, onSetupCo
   }, [setupConfig?.firewallConfigured]);
 
   const handleDisconnect = async () => {
-    if (!window.confirm('Are you sure you want to disconnect from Firewalla? You will need to reconnect using a QR code.')) {
-      return;
-    }
-
     setLoading(true);
     setError(null);
     setSuccess(null);
+    setDisconnectDialogOpen(false);
 
     try {
       const response = await fetch('/api/firewalla/disconnect', {
@@ -175,7 +175,13 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ setupConfig, onSetupCo
         videoRef.current.play();
       }
     } catch (err) {
-      setError('Failed to access camera. Please check permissions.');
+      console.error('Camera access error:', err);
+      const errorMessage = err instanceof Error && err.name === 'NotAllowedError'
+        ? 'Camera access denied. Please allow camera access in your browser settings.'
+        : err instanceof Error && err.name === 'NotFoundError'
+        ? 'No camera found on this device.'
+        : 'Failed to access camera. Try uploading a QR code image instead.';
+      setError(errorMessage);
       setShowCamera(false);
     }
   };
@@ -257,18 +263,18 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ setupConfig, onSetupCo
 
   const handleConnect = async () => {
     if (!qrData) {
-      setError('Please upload or capture a QR code first');
+      setConnectionError('Please upload or capture a QR code first');
       return;
     }
 
     if (!firewallIP.trim()) {
-      setError('Please enter the Firewalla IP address');
+      setConnectionError('Please enter the Firewalla IP address');
       return;
     }
 
     setLoading(true);
-    setError(null);
-    setSuccess(null);
+    setConnectionError(null);
+    setConnectionSuccess(null);
 
     try {
       const response = await fetch('/api/firewalla/connect', {
@@ -283,25 +289,32 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ setupConfig, onSetupCo
       });
 
       if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.error || 'Failed to connect to Firewalla');
+        let errorMessage = 'Failed to connect to Firewalla';
+        try {
+          const data = await response.json();
+          errorMessage = data.error || data.details || errorMessage;
+        } catch (parseError) {
+          // If we can't parse JSON, use status text
+          errorMessage = `Failed to connect: ${response.status} ${response.statusText}`;
+        }
+        throw new Error(errorMessage);
       }
 
       const result = await response.json();
-      setSuccess(`Connected to Firewalla successfully! ${result.firewallInfo?.deviceName || 'Device'} (${result.firewallInfo?.model || 'unknown model'})`);
+      setConnectionSuccess(`Connected to Firewalla successfully! ${result.firewallInfo?.deviceName || 'Device'} (${result.firewallInfo?.model || 'unknown model'})`);
 
-      // Show restart message
+      // Refresh setup config immediately to show disconnect button
+      onSetupComplete();
+
+      // Show restart message if needed
       if (result.requiresRestart) {
         setTimeout(() => {
-          setSuccess('Connection saved! Please restart the bridge server: node firewalla_bridge.js');
+          setConnectionSuccess('Connection saved! Please restart the bridge server: node firewalla_bridge.js');
         }, 2000);
       }
-
-      setTimeout(() => {
-        onSetupComplete();
-      }, 4000);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unknown error');
+      console.error('Connection error:', err);
+      setConnectionError(err instanceof Error ? err.message : 'Unknown error connecting to Firewalla');
     } finally {
       setLoading(false);
     }
@@ -444,10 +457,10 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ setupConfig, onSetupCo
               variant="outlined"
               color="error"
               startIcon={<LinkOffIcon />}
-              onClick={handleDisconnect}
+              onClick={() => setDisconnectDialogOpen(true)}
               disabled={loading}
             >
-              {loading ? <CircularProgress size={24} /> : 'Disconnect'}
+              Disconnect
             </Button>
           </Box>
         ) : (
@@ -474,6 +487,9 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ setupConfig, onSetupCo
               <Typography variant="subtitle2" gutterBottom>
                 Upload QR Code
               </Typography>
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+                Recommended: Upload a screenshot of the QR code from your phone
+              </Typography>
               <input
                 type="file"
                 accept="image/*"
@@ -482,7 +498,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ setupConfig, onSetupCo
                 onChange={handleFileUpload}
               />
               <Button
-                variant="outlined"
+                variant="contained"
                 startIcon={<CloudUploadIcon />}
                 onClick={() => fileInputRef.current?.click()}
                 disabled={loading || showCamera}
@@ -568,6 +584,18 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ setupConfig, onSetupCo
                 helperText="Enter the local IP address of your Firewalla device"
               />
             </Box>
+
+            {connectionError && (
+              <Alert severity="error" sx={{ mb: 2 }} onClose={() => setConnectionError(null)}>
+                {connectionError}
+              </Alert>
+            )}
+
+            {connectionSuccess && (
+              <Alert severity="success" sx={{ mb: 2 }} onClose={() => setConnectionSuccess(null)}>
+                {connectionSuccess}
+              </Alert>
+            )}
 
             <Button
               variant="contained"
@@ -662,6 +690,49 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ setupConfig, onSetupCo
         </Button>
       </Paper>
 
+      {/* Disconnect Dialog */}
+      <Dialog
+        open={disconnectDialogOpen}
+        onClose={() => setDisconnectDialogOpen(false)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>Disconnect from Firewalla?</DialogTitle>
+        <DialogContent>
+          <Typography paragraph>
+            Are you sure you want to disconnect from Firewalla? This will:
+          </Typography>
+          <Box component="ul" sx={{ pl: 3, mb: 2 }}>
+            <Typography component="li" variant="body2">
+              Remove the ETP connection keys
+            </Typography>
+            <Typography component="li" variant="body2">
+              Clear the device information
+            </Typography>
+            <Typography component="li" variant="body2">
+              Require reconnecting with a QR code to use the app again
+            </Typography>
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button
+            onClick={() => setDisconnectDialogOpen(false)}
+            disabled={loading}
+          >
+            Cancel
+          </Button>
+          <Button
+            color="error"
+            variant="contained"
+            onClick={handleDisconnect}
+            disabled={loading}
+          >
+            {loading ? <CircularProgress size={24} /> : 'Disconnect'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Reset Dialog */}
       <Dialog
         open={resetDialogOpen}
         onClose={() => {
