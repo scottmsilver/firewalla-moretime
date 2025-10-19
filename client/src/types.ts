@@ -61,4 +61,5 @@ export interface AuthStatus {
   user: AuthUser | null;
   setup: SetupConfig;
   oauthConfigured: boolean;
+  isAdmin: boolean;
 }

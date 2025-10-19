@@ -505,6 +505,32 @@ function requireAuth(req, res, next) {
     res.status(401).json({ error: 'Authentication required' });
 }
 
+// Middleware: Require admin access
+async function requireAdmin(req, res, next) {
+    if (!req.isAuthenticated()) {
+        return res.status(401).json({ error: 'Authentication required' });
+    }
+
+    try {
+        const setup = await loadSetupConfig();
+
+        // Allow access during initial setup (no admin set yet)
+        if (!setup.setupComplete || !setup.adminEmail) {
+            return next();
+        }
+
+        // Check if current user is the admin
+        if (req.user.email === setup.adminEmail) {
+            return next();
+        }
+
+        return res.status(403).json({ error: 'Admin access required' });
+    } catch (error) {
+        console.error('Admin check error:', error);
+        return res.status(500).json({ error: 'Failed to verify admin status' });
+    }
+}
+
 // Authentication Routes
 
 // Check auth status
@@ -513,11 +539,21 @@ app.get('/api/auth/status', async (req, res) => {
         console.log('📍 GET /api/auth/status - Request received');
         const setup = await loadSetupConfig();
         console.log('✅ Setup config loaded:', setup);
+
+        // Determine if current user is admin
+        // During initial setup (!setup.setupComplete || !setup.adminEmail),
+        // any user is considered "admin" for UI purposes to allow setup completion.
+        // Backend endpoints still require authentication via requireAdmin middleware.
+        // User is admin if: no admin exists yet (initial setup) OR user's email matches admin email
+        const isAdmin = !setup.setupComplete || !setup.adminEmail ||
+                       (req.isAuthenticated() && req.user.email === setup.adminEmail);
+
         res.json({
             authenticated: req.isAuthenticated(),
             user: req.user || null,
             setup: setup,
-            oauthConfigured: !!(config.GOOGLE_CLIENT_ID && config.GOOGLE_CLIENT_SECRET)
+            oauthConfigured: !!(config.GOOGLE_CLIENT_ID && config.GOOGLE_CLIENT_SECRET),
+            isAdmin: isAdmin
         });
     } catch (error) {
         console.error('❌ Error in /api/auth/status:', error);
@@ -538,14 +574,20 @@ app.get('/auth/google',
 app.get('/auth/google/callback',
     passport.authenticate('google', { failureRedirect: '/' }),
     async (req, res) => {
-        // Save admin email to setup config
         const setup = await loadSetupConfig();
-        setup.adminEmail = req.user.email;
+
+        // ONLY set admin email if no admin exists yet (first-time setup)
+        if (!setup.setupComplete || !setup.adminEmail) {
+            setup.adminEmail = req.user.email;
+            setup.setupComplete = true;
+            console.log(`✅ Admin account created: ${req.user.email}`);
+        }
+
         setup.emailConfigured = !!req.user.refreshToken;
         await saveSetupConfig(setup);
 
-        // Save Gmail credentials for email notifications
-        if (req.user.refreshToken) {
+        // Only save Gmail credentials if this user IS the admin
+        if (setup.adminEmail === req.user.email && req.user.refreshToken) {
             await updateEnvFile({
                 GMAIL_USER: req.user.email,
                 GMAIL_CLIENT_ID: config.GOOGLE_CLIENT_ID,
@@ -577,7 +619,7 @@ app.post('/api/auth/logout', (req, res) => {
 // Configuration Management Routes
 
 // Update OAuth credentials
-app.post('/api/admin/configure-oauth', async (req, res) => {
+app.post('/api/admin/configure-oauth', requireAdmin, async (req, res) => {
     try {
         const { clientId, clientSecret } = req.body;
 
@@ -602,7 +644,7 @@ app.post('/api/admin/configure-oauth', async (req, res) => {
 });
 
 // Reload configuration
-app.post('/api/admin/reload-config', async (req, res) => {
+app.post('/api/admin/reload-config', requireAdmin, async (req, res) => {
     try {
         await reloadConfig();
         res.json({ success: true, message: 'Configuration reloaded successfully' });
@@ -613,7 +655,7 @@ app.post('/api/admin/reload-config', async (req, res) => {
 });
 
 // Reset admin and all setup
-app.post('/api/admin/reset', requireAuth, async (req, res) => {
+app.post('/api/admin/reset', requireAdmin, async (req, res) => {
     try {
         // Delete setup.json
         await fs.unlink(SETUP_FILE).catch(() => {});
@@ -651,7 +693,7 @@ app.post('/api/admin/reset', requireAuth, async (req, res) => {
 });
 
 // Save notification email
-app.post('/api/settings/notification-email', requireAuth, async (req, res) => {
+app.post('/api/settings/notification-email', requireAdmin, async (req, res) => {
     try {
         const { email } = req.body;
 
@@ -916,7 +958,7 @@ app.get('/api/history', async (req, res) => {
 });
 
 // Send test email
-app.post('/api/test-email', async (req, res) => {
+app.post('/api/test-email', requireAdmin, async (req, res) => {
     // Check if we have either the default Gmail client or user credentials
     if (!gmailClient && !req.user?.refreshToken) {
         return res.status(400).json({ error: 'Email not configured' });
@@ -959,7 +1001,7 @@ app.post('/api/test-email', async (req, res) => {
 // Firewalla Connection Management Routes
 
 // Upload and parse QR code
-app.post('/api/firewalla/qr-upload', requireAuth, upload.single('qrImage'), async (req, res) => {
+app.post('/api/firewalla/qr-upload', requireAdmin, upload.single('qrImage'), async (req, res) => {
     try {
         if (!req.file) {
             return res.status(400).json({ error: 'No image file provided' });
@@ -1004,7 +1046,7 @@ app.post('/api/firewalla/qr-upload', requireAuth, upload.single('qrImage'), asyn
 });
 
 // Connect to Firewalla
-app.post('/api/firewalla/connect', requireAuth, async (req, res) => {
+app.post('/api/firewalla/connect', requireAdmin, async (req, res) => {
     try {
         const { qrData, firewallIP } = req.body;
 
@@ -1139,7 +1181,7 @@ app.post('/api/firewalla/connect', requireAuth, async (req, res) => {
 });
 
 // Disconnect from Firewalla
-app.post('/api/firewalla/disconnect', requireAuth, async (req, res) => {
+app.post('/api/firewalla/disconnect', requireAdmin, async (req, res) => {
     try {
         // Remove ETP key files
         const publicKeyPath = join(__dirname, '..', 'etp.public.pem');

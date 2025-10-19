@@ -94,6 +94,7 @@ function App() {
           emailConfigured: false,
         },
         oauthConfigured: false,
+        isAdmin: false,
       });
     }
   }, []);
@@ -155,13 +156,21 @@ function App() {
     }
   }, []);
 
-  // Redirect to Settings tab if Firewalla not configured
+  // Redirect to Settings tab if Firewalla not configured (admin only)
   useEffect(() => {
-    if (authStatus && !authStatus.setup.firewallConfigured) {
+    if (authStatus && !authStatus.setup.firewallConfigured && authStatus.isAdmin) {
       setCurrentTab(2); // Settings tab
       window.history.pushState({}, '', '/settings');
     }
   }, [authStatus]);
+
+  // Redirect non-admins away from Settings tab
+  useEffect(() => {
+    if (authStatus && currentTab === 2 && !authStatus.isAdmin) {
+      setCurrentTab(0); // Redirect to Schedules tab
+      window.history.pushState({}, '', '/');
+    }
+  }, [authStatus, currentTab]);
 
   useEffect(() => {
     // Only fetch policies if Firewalla is configured
@@ -344,7 +353,7 @@ function App() {
                   >
                     <Tab label="Schedules" />
                     <Tab label="History" />
-                    <Tab label="Settings" />
+                    {authStatus.isAdmin && <Tab label="Settings" />}
                   </Tabs>
                   <Tooltip title="Account">
                     <IconButton onClick={handleMenuOpen} size="small">
@@ -483,7 +492,7 @@ function App() {
               <HistoryTab history={history} loading={loading} />
             )}
 
-            {currentTab === 2 && (
+            {currentTab === 2 && authStatus.isAdmin && (
               <SettingsTab setupConfig={authStatus.setup} onSetupComplete={refreshSetup} />
             )}
 
