@@ -63,11 +63,12 @@ Thumbs.db
 *.jpeg
 Screenshot_*
 
-# Temporary documentation
+# Temporary documentation (but allow files in docs/ directory)
 STATUS.md
 FINAL_STATUS.md
-*_PLAN.md
-QR_CODE_STATUS.md
+/*_PLAN.md
+/QR_CODE_STATUS.md
+/GMAIL_SETUP.md
 
 # Client environment files
 client/.env

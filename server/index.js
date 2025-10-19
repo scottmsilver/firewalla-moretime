@@ -30,8 +30,8 @@ const app = express();
 app.use(express.json());
 
 // Constants
-const SETUP_FILE = join(__dirname, 'setup.json');
-const ENV_FILE = join(__dirname, '.env');
+const SETUP_FILE = join(__dirname, '..', 'setup.json');
+const ENV_FILE = join(__dirname, '..', '.env');
 
 // Configuration state (reloadable)
 let config = {
@@ -594,8 +594,8 @@ app.post('/api/admin/reset', requireAuth, async (req, res) => {
         await fs.unlink(SETUP_FILE).catch(() => {});
 
         // Optionally delete Firewalla connection
-        const publicKeyPath = join(__dirname, 'etp.public.pem');
-        const privateKeyPath = join(__dirname, 'etp.private.pem');
+        const publicKeyPath = join(__dirname, '..', 'etp.public.pem');
+        const privateKeyPath = join(__dirname, '..', 'etp.private.pem');
         await fs.unlink(publicKeyPath).catch(() => {});
         await fs.unlink(privateKeyPath).catch(() => {});
 
@@ -1016,8 +1016,8 @@ app.post('/api/firewalla/connect', requireAuth, async (req, res) => {
         const { access_token } = await FWGroupApi.login(email);
 
         // Save keys to PEM files
-        const publicKeyPath = join(__dirname, 'etp.public.pem');
-        const privateKeyPath = join(__dirname, 'etp.private.pem');
+        const publicKeyPath = join(__dirname, '..', 'etp.public.pem');
+        const privateKeyPath = join(__dirname, '..', 'etp.private.pem');
 
         await fs.writeFile(publicKeyPath, SecureUtil.publicKey);
         await fs.writeFile(privateKeyPath, SecureUtil.privateKey);
@@ -1087,8 +1087,8 @@ app.post('/api/firewalla/connect', requireAuth, async (req, res) => {
 app.post('/api/firewalla/disconnect', requireAuth, async (req, res) => {
     try {
         // Remove ETP key files
-        const publicKeyPath = join(__dirname, 'etp.public.pem');
-        const privateKeyPath = join(__dirname, 'etp.private.pem');
+        const publicKeyPath = join(__dirname, '..', 'etp.public.pem');
+        const privateKeyPath = join(__dirname, '..', 'etp.private.pem');
 
         await fs.unlink(publicKeyPath).catch(() => {});
         await fs.unlink(privateKeyPath).catch(() => {});
@@ -1112,24 +1112,24 @@ app.post('/api/firewalla/disconnect', requireAuth, async (req, res) => {
 
 // Serve React build static files (CSS, JS, images, etc.)
 // This must come AFTER all API routes to avoid conflicts
-app.use(express.static(join(__dirname, 'client', 'build')));
+app.use(express.static(join(__dirname, '..', 'client', 'build')));
 
 // Serve main page - serves React app from build directory
 // All these routes serve the same React app, which handles client-side routing
 app.get('/', (req, res) => {
-    res.sendFile(join(__dirname, 'client', 'build', 'index.html'));
+    res.sendFile(join(__dirname, '..', 'client', 'build', 'index.html'));
 });
 
 app.get('/schedules', (req, res) => {
-    res.sendFile(join(__dirname, 'client', 'build', 'index.html'));
+    res.sendFile(join(__dirname, '..', 'client', 'build', 'index.html'));
 });
 
 app.get('/history', (req, res) => {
-    res.sendFile(join(__dirname, 'client', 'build', 'index.html'));
+    res.sendFile(join(__dirname, '..', 'client', 'build', 'index.html'));
 });
 
 app.get('/settings', (req, res) => {
-    res.sendFile(join(__dirname, 'client', 'build', 'index.html'));
+    res.sendFile(join(__dirname, '..', 'client', 'build', 'index.html'));
 });
 
 // Initialize Firewalla and start server

@@ -4,11 +4,11 @@
   "description": "A Python CLI tool to manage internet access time extensions for your kids on Firewalla devices. This tool allows you to automatically grant additional internet time when your kids run out of their daily quota, with full request logging.",
   "main": "setup_firewalla_api.js",
   "scripts": {
-    "test": "node test/qr_validation.test.js",
-    "test:qr": "node test/test_qr_parser.js",
-    "test:connection": "node test/qr_connection.test.js",
-    "dev": "nodemon web_server.js",
-    "start": "node web_server.js"
+    "test": "node server/tests/qr_validation.test.js",
+    "test:qr": "node server/tests/test_qr_parser.js",
+    "test:connection": "node server/tests/qr_connection.test.js",
+    "dev": "nodemon server/index.js",
+    "start": "node server/index.js"
   },
   "keywords": [],
   "author": "",
