@@ -15,29 +15,42 @@ A tool to manage internet access time for your kids on Firewalla devices. Provid
 
 ## Architecture
 
+**Development Mode:**
 ```
 ┌─────────────────┐
-│  React Web UI   │  Browser interface with pause buttons
-│  (port 3005)    │  Shows policies, history
-│                 │  Setup wizard, Google OAuth, Settings
+│   Vite Server   │  React dev server with hot reload
+│   (port 3005)   │  • Serves React UI
+│                 │  • Proxies /api, /auth, /health → port 3003
 └────────┬────────┘
-         │ HTTP
+         │ Proxied requests
          │
 ┌────────▼────────┐
-│  API Server     │  Combined Express backend (port 3003)
-│ server/index.js │  • API endpoints & authentication
+│  API Server     │  Express backend (port 3003)
+│ server/index.js │  • API endpoints only (no UI)
+│                 │  • Google OAuth authentication
 │                 │  • Firewalla client (encrypted ETP)
 │                 │  • Email notifications
-│                 │  Auto-configures via web UI
 └────────┬────────┘
-         │ Encrypted API (port 8833)
-         │ using ETP keys
+         │ Encrypted ETP (port 8833)
          │
 ┌────────▼────────┐
 │   Firewalla     │  Your Firewalla device
 │  (your network) │
 └─────────────────┘
 ```
+
+**Why Proxy?**
+
+The frontend (port 3005) proxies API requests to the backend (port 3003) to solve the **same-origin policy** problem:
+
+- Without proxy: Browser blocks requests from `http://localhost:3005` → `http://localhost:3003` (different ports = different origins)
+- With proxy: Frontend makes requests to `/api/*` on same port (3005), Vite forwards them to backend (3003)
+- Result: Browser thinks all requests are same-origin, no CORS issues
+
+**Key Points:**
+- Vite dev server (port 3005) proxies `/api`, `/auth`, `/health` to port 3003
+- In production, you'd either use CORS or serve everything from one domain
+- Backend serves API only - does not serve static files
 
 ## Quick Start
 
@@ -64,7 +77,7 @@ The easiest way to set up Firewalla Time Manager is through the web interface:
    npm run dev
    ```
 
-5. **Open your browser to http://localhost:3003**
+5. **Open your browser to http://localhost:3005**
 
 6. **Follow the setup wizard:**
    - Upload QR code screenshot from Firewalla app
@@ -117,7 +130,7 @@ This will start:
 
 ### 5. Complete Setup via Web UI
 
-1. **Open http://localhost:3003** in your browser
+1. **Open http://localhost:3005** in your browser
 
 2. **Get QR Code from Firewalla App:**
    - Open Firewalla mobile app
@@ -148,7 +161,7 @@ This will start:
 
 ## Usage
 
-1. **Open http://localhost:3003** in your browser
+1. **Open http://localhost:3005** in your browser
 
 2. **Login with Google** (admin authentication)
 
@@ -269,11 +282,22 @@ Create a systemd service or add to crontab:
 @reboot cd /home/ssilver/development/fw && npm run dev > app.log 2>&1 &
 ```
 
+## Development
+
+The project uses a separated frontend/backend architecture for development:
+
+- **Frontend (Vite)**: `npm run dev:client` - Starts React dev server on port 3005
+- **Backend (Node)**: `npm run dev:server` - Starts API server on port 3003
+- **Both**: `npm run dev` - Starts both servers concurrently
+
+The Vite dev server automatically proxies API requests from port 3005 to port 3003 (configured in `client/vite.config.ts`).
+
 ## API Endpoints
 
 ### API Server (Port 3003)
 
-- `GET /` - Web UI interface
+**Note:** In development, access these via the frontend (port 3005) which proxies requests to the API server.
+
 - `GET /health` - Check Firewalla connection status
 - `GET /api/policies` - Get all time-based policies with user info
 - `POST /api/policies/:pid/pause` - Pause a policy and send email (JSON: `{minutes: 30, reason: "homework"}`)
@@ -281,6 +305,8 @@ Create a systemd service or add to crontab:
 - `GET /api/history` - Get pause history
 - `POST /api/test-email` - Send test email notification
 - `GET /api/auth/status` - Check authentication and setup status
+- `GET /auth/google` - Initiate Google OAuth flow
+- `GET /auth/google/callback` - Google OAuth callback
 
 Example:
 ```bash

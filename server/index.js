@@ -1110,28 +1110,6 @@ app.post('/api/firewalla/disconnect', requireAuth, async (req, res) => {
     }
 });
 
-// Serve React build static files (CSS, JS, images, etc.)
-// This must come AFTER all API routes to avoid conflicts
-app.use(express.static(join(__dirname, '..', 'client', 'build')));
-
-// Serve main page - serves React app from build directory
-// All these routes serve the same React app, which handles client-side routing
-app.get('/', (req, res) => {
-    res.sendFile(join(__dirname, '..', 'client', 'build', 'index.html'));
-});
-
-app.get('/schedules', (req, res) => {
-    res.sendFile(join(__dirname, '..', 'client', 'build', 'index.html'));
-});
-
-app.get('/history', (req, res) => {
-    res.sendFile(join(__dirname, '..', 'client', 'build', 'index.html'));
-});
-
-app.get('/settings', (req, res) => {
-    res.sendFile(join(__dirname, '..', 'client', 'build', 'index.html'));
-});
-
 // Initialize Firewalla and start server
 (async () => {
     // Try to initialize Firewalla connection on startup
@@ -1142,8 +1120,8 @@ app.get('/settings', (req, res) => {
     }
 
     app.listen(config.WEB_PORT, () => {
-        console.log(`\n🌐 Firewalla Time Manager Web UI`);
-        console.log(`   Running on http://localhost:${config.WEB_PORT}`);
+        console.log(`\n🌐 Firewalla Time Manager API Server`);
+        console.log(`   API running on http://localhost:${config.WEB_PORT}`);
 
         const fwStatus = firewalla.getStatus();
         console.log(`\n📡 Firewalla: ${fwStatus.status} ${fwStatus.status === 'connected' ? '(' + fwStatus.firewalla_ip + ')' : ''}`);
@@ -1161,6 +1139,6 @@ app.get('/settings', (req, res) => {
             console.log(`✉️  Email notifications: Disabled`);
         }
 
-        console.log(`\n✨ Open http://localhost:${config.WEB_PORT} in your browser\n`);
+        console.log(`\n✨ Web UI: Start with 'npm run dev:client' or access via http://localhost:3005 in development\n`);
     });
 })();

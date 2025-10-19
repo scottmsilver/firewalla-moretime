@@ -7,7 +7,9 @@
     "test": "node server/tests/qr_validation.test.js",
     "test:qr": "node server/tests/test_qr_parser.js",
     "test:connection": "node server/tests/qr_connection.test.js",
-    "dev": "nodemon server/index.js",
+    "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
+    "dev:server": "nodemon server/index.js",
+    "dev:client": "cd client && npm start",
     "start": "node server/index.js"
   },
   "keywords": [],
@@ -31,6 +33,7 @@
     "qrcode-reader": "^1.0.4"
   },
   "devDependencies": {
+    "concurrently": "^9.2.1",
     "nodemon": "^3.1.10"
   }
 }
