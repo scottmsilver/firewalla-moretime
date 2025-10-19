@@ -29,7 +29,7 @@ Main test suite that validates QR code structure and content.
 ```bash
 npm test
 # or
-node test/qr_validation.test.js
+node server/tests/qr_validation.test.js
 ```
 
 ### `qr_connection.test.js`
@@ -54,7 +54,7 @@ Full end-to-end connection test using actual QR code images.
 ```bash
 npm run test:connection
 # or
-node test/qr_connection.test.js
+node server/tests/qr_connection.test.js
 ```
 
 **Expected Output:**
@@ -74,20 +74,20 @@ Comprehensive test suite with generated QR codes.
 
 **Run:**
 ```bash
-node test/qr_parser.test.js
+node server/tests/qr_parser.test.js
 ```
 
 ## Testing Tools
 
-### `../test_qr_parser.js`
+### `test_qr_parser.js`
 Command-line tool for testing QR code parsing on any image.
 
 **Usage:**
 ```bash
 # Test specific files
-node test_qr_parser.js path/to/qr-image.png path/to/another.jpg
+node server/tests/test_qr_parser.js path/to/qr-image.png path/to/another.jpg
 
-# Test fixture images
+# Test fixture images (from project root)
 npm run test:qr
 ```
 
@@ -131,15 +131,15 @@ A valid Firewalla QR code contains:
 
 To test a new QR code image:
 
-1. Copy image to `test/fixtures/`
+1. Copy image to `server/tests/fixtures/`
 2. Run the parser:
    ```bash
-   node test_qr_parser.js test/fixtures/your-image.png
+   node server/tests/test_qr_parser.js server/tests/fixtures/your-image.png
    ```
 
 Or test directly from downloads:
 ```bash
-node test_qr_parser.js ~/Downloads/firewalla-qr.png
+node server/tests/test_qr_parser.js ~/Downloads/firewalla-qr.png
 ```
 
 ## Known Issues

@@ -22,29 +22,34 @@ npm install
 
 ### Configure API URL
 
-The app is configured to proxy requests to the backend API server at `http://localhost:3003`.
+The Vite dev server proxies API requests (`/api`, `/auth`, `/health`) to the backend API server at `http://localhost:3003`.
 
-If you need to change this, edit the `proxy` field in `package.json` or set `REACT_APP_API_URL` in `.env`.
+This is configured in `vite.config.ts`. The proxy solves same-origin policy issues during development.
 
 ### Start Development Server
 
-Make sure the backend servers are running:
+From the project root, start both the backend and frontend:
 
 ```bash
-# Terminal 1: Bridge server (port 3002)
-cd /home/ssilver/development/fw
-node firewalla_bridge.js
-
-# Terminal 2: API server (port 3003)
-cd /home/ssilver/development/fw
-node web_server.js
-
-# Terminal 3: React dev server (port 3000)
-cd /home/ssilver/development/fw/client
-npm start
+# Start both servers (recommended)
+npm run dev
 ```
 
-The React app will open at `http://localhost:3000`
+This runs:
+- API server on port 3003 (backend with Firewalla integration)
+- React dev server on port 3005 (frontend with hot reload)
+
+Or start them separately:
+
+```bash
+# Terminal 1: API server only
+npm run dev:server
+
+# Terminal 2: React dev server only
+npm run dev:client
+```
+
+The React app will open at `http://localhost:3005`
 
 ## Build for Production
 
