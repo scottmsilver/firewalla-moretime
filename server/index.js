@@ -36,6 +36,7 @@ const ENV_FILE = join(__dirname, '..', '.env');
 // Configuration state (reloadable)
 let config = {
     WEB_PORT: process.env.WEB_PORT || 3003,
+    BIND_HOST: process.env.BIND_HOST || 'localhost',
     WEB_URL: process.env.WEB_URL || `http://localhost:${process.env.WEB_PORT || 3003}`,
     LOG_FILE: process.env.LOG_FILE || 'time_extensions.log',
     GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID || '',
@@ -187,6 +188,7 @@ async function reloadEnv() {
         // Update config object
         config = {
             WEB_PORT: process.env.WEB_PORT || 3003,
+            BIND_HOST: process.env.BIND_HOST || 'localhost',
             WEB_URL: process.env.WEB_URL || `http://localhost:${process.env.WEB_PORT || 3003}`,
             LOG_FILE: process.env.LOG_FILE || 'time_extensions.log',
             GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID || '',
@@ -1216,9 +1218,9 @@ app.post('/api/firewalla/disconnect', requireAdmin, async (req, res) => {
         console.warn('⚠️  Firewalla connection not initialized (credentials may not be configured yet)');
     }
 
-    app.listen(config.WEB_PORT, () => {
+    app.listen(config.WEB_PORT, config.BIND_HOST, () => {
         console.log(`\n🌐 Firewalla Time Manager API Server`);
-        console.log(`   API running on http://localhost:${config.WEB_PORT}`);
+        console.log(`   API running on http://${config.BIND_HOST}:${config.WEB_PORT}`);
 
         const fwStatus = firewalla.getStatus();
         console.log(`\n📡 Firewalla: ${fwStatus.status} ${fwStatus.status === 'connected' ? '(' + fwStatus.firewalla_ip + ')' : ''}`);
