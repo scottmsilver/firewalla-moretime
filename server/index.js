@@ -253,8 +253,33 @@ function escapeHtml(text) {
 }
 
 // Helper: Send email via Gmail API
-async function sendGmailMessage(to, subject, htmlBody) {
-    if (!gmailClient) {
+async function sendGmailMessage(to, subject, htmlBody, userCredentials = null) {
+    // Determine which Gmail client to use
+    let emailClient = gmailClient;
+    let fromEmail = config.GMAIL_USER;
+
+    // If user credentials are provided, create a client for that user
+    if (userCredentials && userCredentials.email && userCredentials.refreshToken) {
+        try {
+            const oauth2Client = new google.auth.OAuth2(
+                config.GMAIL_CLIENT_ID,
+                config.GMAIL_CLIENT_SECRET,
+                config.WEB_URL + '/auth/google/callback'
+            );
+
+            oauth2Client.setCredentials({
+                refresh_token: userCredentials.refreshToken
+            });
+
+            emailClient = google.gmail({ version: 'v1', auth: oauth2Client });
+            fromEmail = userCredentials.email;
+        } catch (error) {
+            console.warn('Failed to create user-specific Gmail client, falling back to default:', error.message);
+            // Fall back to default gmailClient
+        }
+    }
+
+    if (!emailClient) {
         throw new Error('Gmail client not initialized');
     }
 
@@ -278,7 +303,7 @@ async function sendGmailMessage(to, subject, htmlBody) {
 
     // Create MIME message
     const message = [
-        `From: ${config.GMAIL_USER}`,
+        `From: ${fromEmail}`,
         `To: ${to.trim()}`,
         `Subject: ${subject.trim()}`,
         'MIME-Version: 1.0',
@@ -296,7 +321,7 @@ async function sendGmailMessage(to, subject, htmlBody) {
         .replace(/=+$/, '');
 
     // Send via Gmail API
-    const result = await gmailClient.users.messages.send({
+    const result = await emailClient.users.messages.send({
         userId: 'me',
         requestBody: {
             raw: encodedMessage
@@ -784,8 +809,19 @@ app.post('/api/policies/:pid/pause', async (req, res) => {
 
         // Send email notification
         let emailSent = false;
-        if (gmailClient && config.NOTIFY_EMAIL) {
+        let emailFrom = config.GMAIL_USER;
+        if ((gmailClient || req.user?.refreshToken) && config.NOTIFY_EMAIL) {
             try {
+                // Use logged-in user's credentials if available
+                const userCredentials = req.user?.refreshToken ? {
+                    email: req.user.email,
+                    refreshToken: req.user.refreshToken
+                } : null;
+
+                if (userCredentials) {
+                    emailFrom = userCredentials.email;
+                }
+
                 await sendGmailMessage(
                     config.NOTIFY_EMAIL,
                     `Firewalla: Internet Access Granted for ${escapeHtml(userName)}`,
@@ -799,10 +835,11 @@ app.post('/api/policies/:pid/pause', async (req, res) => {
                         <p><strong>Time:</strong> ${escapeHtml(new Date().toLocaleString())}</p>
                         <hr>
                         <p><em>This policy will automatically re-enable after ${escapeHtml(minutes)} minutes.</em></p>
-                    `
+                    `,
+                    userCredentials
                 );
                 emailSent = true;
-                console.log(`✉️  Email sent to ${config.NOTIFY_EMAIL}`);
+                console.log(`✉️  Email sent to ${config.NOTIFY_EMAIL} from ${emailFrom}`);
             } catch (emailError) {
                 console.error('Failed to send email:', emailError.message);
             }
@@ -812,6 +849,7 @@ app.post('/api/policies/:pid/pause', async (req, res) => {
         logEntry.emailSent = emailSent;
         if (emailSent) {
             logEntry.emailTo = config.NOTIFY_EMAIL;
+            logEntry.emailFrom = emailFrom;
         }
 
         // Write to log file
@@ -879,22 +917,39 @@ app.get('/api/history', async (req, res) => {
 
 // Send test email
 app.post('/api/test-email', async (req, res) => {
-    if (!gmailClient) {
+    // Check if we have either the default Gmail client or user credentials
+    if (!gmailClient && !req.user?.refreshToken) {
         return res.status(400).json({ error: 'Email not configured' });
     }
 
     try {
         const timestamp = new Date().toLocaleString();
+
+        // Use logged-in user's credentials if available
+        const userCredentials = req.user?.refreshToken ? {
+            email: req.user.email,
+            refreshToken: req.user.refreshToken
+        } : null;
+
+        const fromEmail = userCredentials ? userCredentials.email : config.GMAIL_USER;
+
         await sendGmailMessage(
-            config.NOTIFY_EMAIL || config.GMAIL_USER,
+            config.NOTIFY_EMAIL || fromEmail,
             'Firewalla Time Manager - Test Email',
             `
                 <h2>Test Email</h2>
                 <p>Your email configuration is working correctly!</p>
+                <p><strong>Sent from:</strong> ${escapeHtml(fromEmail)}</p>
                 <p><strong>Time:</strong> ${escapeHtml(timestamp)}</p>
-            `
+            `,
+            userCredentials
         );
-        res.json({ success: true, message: 'Test email sent successfully' });
+        res.json({
+            success: true,
+            message: 'Test email sent successfully',
+            from: fromEmail,
+            to: config.NOTIFY_EMAIL || fromEmail
+        });
     } catch (error) {
         console.error('Test email error:', error);
         res.status(500).json({ error: error.message });
